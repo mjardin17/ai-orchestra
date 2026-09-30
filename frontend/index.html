@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Orchestra</title>
+<style>
+:root{--bg:#eef1f4;--panel:#fff;--ink:#1b2430;--mute:#66707d;--line:#d5dae0;--accent:#2f4bd0;--ok:#1f8a5b;--warn:#b26a00}
+@media (prefers-color-scheme:dark){:root{--bg:#12161c;--panel:#1a2029;--ink:#e6e9ee;--mute:#8b95a3;--line:#2a323d;--accent:#7b8fff;--ok:#4cc38a;--warn:#e0a040}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+.app{display:grid;grid-template-columns:260px 1fr 280px;gap:12px;padding:12px;min-height:100vh}
+@media (max-width:900px){.app{grid-template-columns:1fr}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px}
+h1{font:600 18px/1.2 Georgia,serif;margin:0 0 12px}
+h2{font:600 13px/1.2 system-ui;margin:16px 0 8px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+h2:first-child{margin-top:0}
+textarea,select,input[type=text]{width:100%;padding:8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:90px;resize:vertical}
+#notes{min-height:64px;font-size:14px}
+button{font:inherit;padding:8px 14px;border:0;border-radius:4px;background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:none;border:1px solid var(--line);color:var(--ink)}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
+#final{font:16px/1.65 Georgia,serif;white-space:pre-wrap;max-width:70ch}
+.item{display:flex;justify-content:space-between;gap:6px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.item span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.item button{padding:0 6px;background:none;color:var(--mute)}
+.hist{cursor:pointer}
+.agent{padding:8px 0;border-bottom:1px solid var(--line)}
+.st{float:right;font-size:13px;color:var(--mute)}
+.agent.running .st{color:var(--warn)}.agent.done .st{color:var(--ok)}
+details{margin-top:4px;color:var(--mute);font-size:13px;white-space:pre-wrap}
+.empty{color:var(--mute)}
+@media print{body{background:#fff;color:#000}.app{display:block;padding:0}.app>section:not(.main),.row,textarea{display:none}.main{border:0}}
+.tabs{display:flex;gap:8px;padding:12px 12px 0}
+.app[hidden],#modelsView[hidden]{display:none}
+#modelsView{padding:12px;display:grid;gap:12px;max-width:900px}
+.m{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}
+.m>div{flex:1}.m small{color:var(--mute);display:block}.m.off{opacity:.55}
+.row input[type=text]{flex:1;min-width:140px;width:auto}
+.arena-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;padding:12px}
+.arena-col{border:1px solid var(--line);border-radius:6px;padding:10px;background:var(--panel)}
+.arena-col.winner{border-color:var(--ok)}
+.arena-col pre{white-space:pre-wrap;font:14px/1.5 inherit;max-height:320px;overflow:auto}
+#imageView,#videoView{padding:12px}
+@media print{.tabs{display:none}}
+</style>
+</head>
+<body>
+<nav class="tabs"><button id="tRun">Run</button><button id="tArena" class="ghost">Arena</button><button id="tImage" class="ghost">Image</button><button id="tVideo" class="ghost">Video</button><button id="tModels" class="ghost">Models</button></nav>
+<div class="app" id="runView">
+  <section>
+    <h2>Workspace</h2>
+    <select id="ws" aria-label="Workspace"></select>
+    <div class="row"><button id="newws" class="ghost">New workspace</button></div>
+    <h2>Notes every agent reads</h2>
+    <textarea id="notes" placeholder="Goals, style, facts to always keep in mind"></textarea>
+    <h2>Skills</h2>
+    <div id="skills"></div>
+    <div class="row"><button id="newskill" class="ghost">Add skill</button></div>
+    <h2>Files (text, code, markdown, csv)</h2>
+    <input id="file" type="file" multiple accept=".txt,.md,.csv,.json,.py,.js,.ts,.html,.css,.yml,.yaml,.log,text/*">
+    <div id="files"></div>
+    <h2>Past runs</h2>
+    <div id="hist"><p class="empty">Nothing yet.</p></div>
+  </section>
+  <section class="main">
+    <h1>AI Orchestra</h1>
+    <textarea id="q" placeholder="Describe what you need. Follow-ups work too: the workspace remembers the last few exchanges."></textarea>
+    <div class="row"><button id="go">Run</button><button id="stop" class="ghost" hidden>Stop</button><button id="exp" class="ghost" disabled>Export markdown</button><button id="pdf" class="ghost" disabled>Print / PDF</button></div>
+    <p id="reason" class="empty"></p>
+    <div id="final" class="empty">Your answer will appear here.</div>
+  </section>
+  <section><h2>Agent activity</h2><div id="agents"><p class="empty">Agents appear once a request is routed.</p></div></section>
+</div>
+<div id="arenaView" hidden>
+  <section><h1>Arena</h1><p class="empty">Pick two or more models, run the same prompt, and compare. A judge suggests the best; you can pick your own instead. Every comparison can be exported as training data.</p>
+    <div id="apick"></div>
+    <textarea id="aq" placeholder="Prompt to compare across models"></textarea>
+    <div class="row"><button id="arun">Compare</button><button id="aexp" class="ghost">Export training data (.jsonl)</button></div>
+    <p id="areason" class="empty"></p>
+    <div id="acols" class="arena-cols"></div>
+  </section>
+</div>
+<div id="imageView" hidden>
+  <section><h1>Image</h1><p class="empty">Connect a provider in the Models tab &rarr; Setup first.</p>
+    <select id="iprov"><option value="gemini">Gemini (uses your Gemini key)</option><option value="stability">Stability AI</option><option value="ideogram">Ideogram</option></select>
+    <input type="text" id="imodel" placeholder="Model id (optional — leave blank for the provider's default)">
+    <textarea id="iprompt" placeholder="Describe the image"></textarea>
+    <select id="iratio"><option value="1:1">1:1</option><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="4:3">4:3</option></select>
+    <div class="row"><button id="igo">Generate</button></div>
+    <p id="istatus" class="empty"></p>
+    <img id="iout" style="max-width:100%;display:none;border-radius:6px">
+  </section>
+</div>
+<div id="videoView" hidden>
+  <section><h1>Video</h1><p class="empty">Paid, per-generation. Connect Higgsfield in the Models tab &rarr; Setup first. Paste the exact model_id from <a href="https://docs.higgsfield.ai/docs/models/video-generation" target="_blank" rel="noopener">Higgsfield's model list</a> (e.g. one of the Seedance, Kling or Wan models).</p>
+    <input type="text" id="vmodel" placeholder="model_id, e.g. higgsfield-ai/seedance/2.0">
+    <textarea id="vprompt" placeholder="Describe the video"></textarea>
+    <select id="vratio"><option value="16:9">16:9</option><option value="9:16">9:16</option><option value="1:1">1:1</option></select>
+    <div class="row"><button id="vgo">Generate</button></div>
+    <p id="vstatus" class="empty"></p>
+    <video id="vout" controls style="max-width:100%;display:none"></video>
+  </section>
+</div>
+<div id="modelsView" hidden>
+  <section><h1>Models</h1><p class="empty">Tick the models you want in your pool. The council brain rates each job, starts with the cheapest model that is capable enough, and moves up only if the result isn't good enough. Set each model's capability (1-5) to match how much you trust it. Greyed-out models need a key from the provider (free where they offer one), or the Codex CLI login for ChatGPT, first.</p><div id="mlist"></div></section>
+  <section><h2>Add a model</h2><div class="row"><select id="cprov" aria-label="Provider"></select><input type="text" id="cmodel" placeholder="Model id, e.g. meta-llama/llama-3.3-70b-instruct:free" aria-label="Model id"><input type="text" id="clabel" placeholder="Display name" aria-label="Display name"><button id="cadd">Add</button></div></section>
+  <section><h2>Connect providers</h2>
+    <p class="empty">Claude and ChatGPT use the subscription you already pay for &mdash; sign in once in a terminal, no key needed. Every other provider only offers pay-per-use API keys; there's no subscription login for them to use instead.</p>
+    <div id="subs"></div>
+    <p class="empty" style="margin-top:14px">Requires a key from the provider (a free tier if they offer one, otherwise pay-per-use):</p>
+    <div id="setup"></div>
+  </section>
+  <section><h2>Assign models to agents</h2><div id="pins"></div></section>
+<section><div class="row" style="justify-content:space-between;align-items:center"><h2 style="margin:0">Model usage (last 200 jobs)</h2><button id="tclear" class="ghost">Reset</button></div><div id="tally"><p class="empty">No jobs recorded yet.</p></div></section>
+  <section><label><input type="checkbox" id="allowpriv"> Let non-Claude models (free providers, ChatGPT) see workspace notes and files. They may store or train on them, depending on their settings.</label></section>
+</div>
+<script>
+const $=id=>document.getElementById(id),J=(u,o)=>fetch(u,o).then(r=>r.json());
+const send=(u,b,m="POST")=>J(u,{method:m,headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});
+let ws="default",current={prompt:"",final:""},ctl=null,wsList=[];
+const cap=s=>s[0].toUpperCase()+s.slice(1);
+function agentRow(name){let el=$("a-"+name);if(!el){el=document.createElement("div");el.id="a-"+name;el.className="agent";
+  el.innerHTML='<span class="st">Queued</span><b></b><details><summary>Output</summary><div></div></details>';el.querySelector("b").textContent=cap(name.replace(/-/g," "));
+  el.querySelector("details").hidden=true;$("agents").appendChild(el)}return el}
+function setState(name,state,label,output){const el=agentRow(name);el.className="agent "+state;el.querySelector(".st").textContent=label;
+  if(output){const d=el.querySelector("details");d.hidden=false;d.querySelector("div").textContent=output}}
+function handle(ev){
+  if(ev.type==="route"){$("agents").innerHTML="";
+    const list=ev.stages?ev.stages.flat():(ev.agents||[]);
+    const plan=ev.stages?ev.stages.map(st=>st.map(cap).join(" + ")).join(" → "):list.map(cap).join(", ");
+    $("reason").textContent=ev.mode==="direct"?`Answered directly, no specialists needed. ${ev.reason}`:`Plan: ${plan} (${ev.priority} priority). ${ev.reason}`;
+    list.forEach(a=>setState(a,"","Queued · "+lab((ev.models||{})[a])))}
+  else if(ev.type==="direct_start")$("final").textContent="Answering directly..."
+  else if(ev.type==="agent_start")setState(ev.agent,"running",(ev.note||"Working")+(ev.model?" · "+ev.model:""))
+  else if(ev.type==="agent_done")setState(ev.agent,"done","Done"+(ev.model?" · "+ev.model:""),ev.output)
+  else if(ev.type==="synth_start")$("final").textContent="Combining the specialists' notes..."
+  else if(ev.type==="final"){current.final=ev.text;$("final").className="";$("final").textContent=ev.text;$("exp").disabled=$("pdf").disabled=false;loadHist();if(MD)loadTally()}
+  else if(ev.type==="error"){$("final").className="empty";$("final").textContent="Run failed: "+ev.message+" Check that `claude login` succeeded, then run again."}
+}
+async function run(){
+  const prompt=$("q").value.trim();if(!prompt)return;
+  current={prompt,final:""};$("go").disabled=true;$("stop").hidden=false;$("exp").disabled=$("pdf").disabled=true;$("agents").innerHTML="";
+  $("reason").textContent="Routing your request...";$("final").className="empty";$("final").textContent="Working...";
+  ctl=new AbortController();
+  try{
+    const res=await fetch("/api/run",{method:"POST",signal:ctl.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,workspace_id:ws})});
+    const rd=res.body.getReader(),dec=new TextDecoder();let buf="";
+    for(;;){const {done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
+      const parts=buf.split("\n\n");buf=parts.pop();parts.forEach(p=>p.startsWith("data: ")&&handle(JSON.parse(p.slice(6))))}
+    $("q").value="";
+  }catch(e){if(e.name==="AbortError"){$("final").textContent="Stopped."}else handle({type:"error",message:e.message})}
+  $("go").disabled=false;$("stop").hidden=true;
+}
+async function loadWs(){wsList=await J("/api/workspaces");$("ws").innerHTML="";
+  wsList.forEach(w=>{const o=document.createElement("option");o.value=w.id;o.textContent=w.name;$("ws").appendChild(o)});
+  if(!wsList.some(w=>w.id===ws))ws=wsList[0].id;$("ws").value=ws;$("notes").value=wsList.find(w=>w.id===ws).notes||"";loadFiles();loadHist()}
+async function loadFiles(){loadSkills();const fs=await J(`/api/workspaces/${ws}/files`);$("files").innerHTML="";
+  fs.forEach(f=>{const d=document.createElement("div");d.className="item";const n=document.createElement("span");n.textContent=f.name;
+    const x=document.createElement("button");x.textContent="×";x.setAttribute("aria-label","Remove "+f.name);x.onclick=async()=>{await fetch("/api/files/"+f.id,{method:"DELETE"});loadFiles()};
+    d.append(n,x);$("files").appendChild(d)})}
+async function loadHist(){const runs=await J("/api/runs?workspace_id="+ws);$("hist").innerHTML=runs.length?"":'<p class="empty">Nothing yet.</p>';
+  runs.forEach(r=>{const d=document.createElement("div");d.className="item hist";d.tabIndex=0;const s=document.createElement("span");s.textContent=r.prompt;d.appendChild(s);
+    d.onclick=()=>openRun(r.id);d.onkeydown=e=>e.key==="Enter"&&openRun(r.id);$("hist").appendChild(d)})}
+async function openRun(id){
+  const r=await J("/api/runs/"+id);current={prompt:r.prompt,final:r.final};
+  handle({type:"route",...r.route});Object.entries(r.outputs).forEach(([a,o])=>setState(a,"done","Done",o));
+  $("final").className="";$("final").textContent=r.final;$("exp").disabled=$("pdf").disabled=false}
+$("ws").onchange=()=>{ws=$("ws").value;$("notes").value=wsList.find(w=>w.id===ws).notes||"";loadFiles();loadHist()};
+$("notes").onblur=async()=>{const w=wsList.find(w=>w.id===ws);w.notes=$("notes").value;await send("/api/workspaces/"+ws,{notes:w.notes},"PATCH")};
+$("newws").onclick=async()=>{const name=prompt("Workspace name");if(!name)return;ws=(await send("/api/workspaces",{name})).id;loadWs()};
+$("file").onchange=async e=>{for(const f of e.target.files){const text=await f.text();
+  if(text.includes("\u0000")){alert(f.name+" looks like a binary file. Only text files are supported.");continue}
+  await send(`/api/workspaces/${ws}/files`,{name:f.name,text})}e.target.value="";loadFiles()};
+$("go").onclick=run;$("stop").onclick=()=>ctl&&ctl.abort();$("pdf").onclick=()=>window.print();
+$("exp").onclick=()=>{const blob=new Blob([`# ${current.prompt}\n\n${current.final}\n`],{type:"text/markdown"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="orchestra-answer.md";a.click()};
+let MAP={},MD=null;
+const lab=id=>MAP[id]||id||"auto";
+async function loadModels(){MD=await J("/api/models");MAP={};MD.models.forEach(m=>MAP[m.id]=m.label);renderModels()}
+function renderModels(){
+  const box=$("mlist");box.innerHTML="";
+  MD.models.forEach(m=>{const d=document.createElement("label");d.className="m"+(m.available?"":" off");
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=m.enabled;cb.disabled=!m.available;
+    cb.onchange=async()=>{await send("/api/models/enabled",{id:m.id,enabled:cb.checked},"PUT");loadModels()};
+    const t=document.createElement("div"),n=document.createElement("b"),s=document.createElement("small");n.textContent=m.label;
+    s.textContent=(m.blurb||"")+`  Cost: ${["free","cheap","mid","high"][m.cost]}.`+(m.available?"":"  "+m.hint);t.append(n,s);d.append(cb,t);const pw=document.createElement("select");pw.style.width="auto";pw.setAttribute("aria-label","Capability of "+m.label);[1,2,3,4,5].forEach(k=>{const o=document.createElement("option");o.value=k;o.textContent="Capability "+k;pw.appendChild(o)});pw.value=m.power;pw.onchange=async()=>{await send("/api/settings",{power:{[m.id]:+pw.value}},"PUT")};d.append(pw);
+    if(m.custom){const x=document.createElement("button");x.className="ghost";x.textContent="Remove";
+      x.onclick=async e=>{e.preventDefault();await fetch("/api/models/custom?id="+encodeURIComponent(m.id),{method:"DELETE"});loadModels()};d.append(x)}
+    box.appendChild(d)});
+  const pins=$("pins");pins.innerHTML="";
+  MD.agents.forEach(a=>{const r=document.createElement("div");r.className="row";const l=document.createElement("span");l.style.width="110px";l.textContent=cap(a);
+    const sel=document.createElement("select");sel.setAttribute("aria-label","Model for "+a);sel.innerHTML='<option value="">Auto (cheapest capable model)</option>';
+    MD.models.filter(m=>m.enabled).forEach(m=>{const o=document.createElement("option");o.value=m.id;o.textContent=m.label;sel.appendChild(o)});
+    sel.value=MD.pins[a]||"";sel.onchange=async()=>{MD.pins[a]=sel.value;await send("/api/settings",{pins:MD.pins},"PUT")};r.append(l,sel);pins.appendChild(r)});
+  $("allowpriv").checked=MD.allow_private;loadTally();loadSetup();loadSubs();
+  $("cprov").innerHTML="";MD.providers.forEach(p=>{const o=document.createElement("option");o.value=p;o.textContent=p;$("cprov").appendChild(o)})}
+$("cadd").onclick=async()=>{const model=$("cmodel").value.trim();if(!model)return;
+  await send("/api/models/custom",{provider:$("cprov").value,model,label:$("clabel").value});$("cmodel").value=$("clabel").value="";loadModels()};
+$("allowpriv").onchange=()=>send("/api/settings",{allow_private:$("allowpriv").checked},"PUT");
+function showTab(name){["run","arena","image","video","models"].forEach(n=>{$(n+"View").hidden=n!==name;$("t"+cap(n)).className=n===name?"":"ghost"})}
+$("tRun").onclick=()=>showTab("run");$("tModels").onclick=()=>{showTab("models");loadModels()};
+$("tArena").onclick=()=>{showTab("arena");loadArenaPicker()};
+$("tVideo").onclick=()=>showTab("video");
+$("tImage").onclick=()=>showTab("image");
+
+async function loadArenaPicker(){if(!MD)MD=await J("/api/models");
+  $("apick").innerHTML="";MD.models.filter(m=>m.available).forEach(m=>{const l=document.createElement("label");l.style.marginRight="12px";l.style.display="inline-block";
+    const c=document.createElement("input");c.type="checkbox";c.value=m.id;l.append(c," "+m.label);$("apick").appendChild(l)})}
+async function runArena(){
+  const ids=[...$("apick").querySelectorAll("input:checked")].map(c=>c.value);const prompt=$("aq").value.trim();
+  if(ids.length<2){alert("Pick at least 2 models.");return}if(!prompt)return;
+  $("acols").innerHTML="";$("areason").textContent="Running...";let runId=null;
+  const res=await fetch("/api/arena",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,model_ids:ids})});
+  const rd=res.body.getReader(),dec=new TextDecoder();let buf="";
+  for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
+    const parts=buf.split("\n\n");buf=parts.pop();
+    for(const p of parts){if(!p.startsWith("data: "))continue;const ev=JSON.parse(p.slice(6));
+      if(ev.type==="arena_run")runId=ev.id;
+      else if(ev.type==="model_done"){const d=document.createElement("div");d.className="arena-col";d.id="ac-"+ev.id;
+        const h=document.createElement("b");h.textContent=ev.label;const pre=document.createElement("pre");pre.textContent=ev.text;
+        const btn=document.createElement("button");btn.className="ghost";btn.textContent="Mark best";
+        btn.onclick=async()=>{await send("/api/arena/winner",{run_id:runId,winner_id:ev.id},"PUT");
+          document.querySelectorAll(".arena-col").forEach(c=>c.classList.remove("winner"));d.classList.add("winner")};
+        d.append(h,pre,btn);$("acols").appendChild(d)}
+      else if(ev.type==="arena_final"){$("areason").textContent="Suggested best: "+lab(ev.suggested[0]);
+        const el=$("ac-"+ev.suggested[0]);if(el)el.classList.add("winner")}
+      else if(ev.type==="error")$("areason").textContent=ev.message}}
+}
+$("arun").onclick=runArena;$("aexp").onclick=()=>window.open("/api/arena/export");
+async function runVideo(){
+  const model_id=$("vmodel").value.trim(),prompt=$("vprompt").value.trim();if(!model_id||!prompt)return;
+  $("vgo").disabled=true;$("vout").style.display="none";$("vstatus").textContent="Submitting...";
+  const res=await fetch("/api/video",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model_id,prompt,aspect_ratio:$("vratio").value})});
+  const rd=res.body.getReader(),dec=new TextDecoder();let buf="";
+  for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
+    const parts=buf.split("\n\n");buf=parts.pop();
+    for(const p of parts){if(!p.startsWith("data: "))continue;const ev=JSON.parse(p.slice(6));
+      if(ev.error){$("vstatus").textContent="Failed: "+ev.error;$("vgo").disabled=false}
+      else if(ev.status==="completed"&&ev.video){$("vstatus").textContent="Done.";$("vout").src=ev.video;$("vout").style.display="block";$("vgo").disabled=false}
+      else $("vstatus").textContent="Status: "+ev.status}}
+  $("vgo").disabled=false;
+}
+$("vgo").onclick=runVideo;
+async function runImage(){
+  const provider=$("iprov").value,model_id=$("imodel").value.trim(),prompt=$("iprompt").value.trim();if(!prompt)return;
+  $("igo").disabled=true;$("iout").style.display="none";$("istatus").textContent="Generating...";
+  try{
+    const r=await send("/api/image",{provider,model_id,prompt,aspect_ratio:$("iratio").value},"POST");
+    if(r.error){$("istatus").textContent="Failed: "+r.error}
+    else{$("iout").src=r.image;$("iout").style.display="block";$("istatus").textContent="Done."}
+  }catch(e){$("istatus").textContent="Failed: "+e.message}
+  $("igo").disabled=false;
+}
+$("igo").onclick=runImage;
+
+async function loadSkills(){const all=await J("/api/skills");const w=wsList.find(w=>w.id===ws);const active=new Set(w&&w.skills?JSON.parse(w.skills):[]);
+  $("skills").innerHTML=all.length?"":'<p class="empty">None yet.</p>';
+  all.forEach(sk=>{const d=document.createElement("label");d.className="item";const l=document.createElement("span");
+    const cb=document.createElement("input");cb.type="checkbox";cb.checked=active.has(sk.id);cb.style.marginRight="6px";
+    l.append(cb,sk.name);const x=document.createElement("button");x.textContent="×";x.setAttribute("aria-label","Delete "+sk.name);
+    x.onclick=async e=>{e.preventDefault();if(confirm('Delete skill "'+sk.name+'"? This removes it from every workspace.'))
+      {await fetch("/api/skills/"+sk.id,{method:"DELETE"});loadSkills()}};
+    cb.onchange=async()=>{const boxes=[...$("skills").querySelectorAll("input")];const chosen=all.filter((s,i)=>boxes[i].checked).map(s=>s.id);
+      await send("/api/workspaces/"+ws,{skills:chosen},"PATCH")};
+    d.append(l,x);$("skills").appendChild(d)})}
+$("newskill").onclick=async()=>{const name=prompt('Skill name (e.g. "Shakespeare style")');if(!name)return;
+  const text=prompt("Paste the text/style guide for this skill (a passage of Shakespeare, a house style guide, reference notes, etc.)");
+  if(!text)return;await send("/api/skills",{name,text});loadSkills()};
+
+async function loadSubs(){
+  const box=$("subs");box.innerHTML="";
+  const rows=[["claude","Claude","claude login","Uses your Claude subscription (Haiku/Sonnet/Opus above)."],
+              ["codex","ChatGPT","codex login","Uses your ChatGPT plan's Codex access."]];
+  rows.forEach(([id,label,cmd,note])=>{const d=document.createElement("div");d.className="m";
+    const t=document.createElement("div");const n=document.createElement("b");n.textContent=label+" — signed in via terminal";
+    const s=document.createElement("small");s.textContent=note+" Run `"+cmd+"` once, then restart the app.";
+    t.append(n,s);d.append(t);box.appendChild(d)})}
+async function loadSetup(){const rows=await J("/api/setup");const box=$("setup");box.innerHTML="";
+  rows.forEach(p=>{const d=document.createElement("div");d.className="m";
+    const t=document.createElement("div");const n=document.createElement("b");n.textContent=p.provider;
+    const s=document.createElement("small");s.textContent=p.note;t.append(n,s);
+    const a=document.createElement("a");a.href=p.signup_url;a.target="_blank";a.rel="noopener";a.textContent="Sign up ↗";a.style.marginRight="8px";
+    const inp=document.createElement("input");inp.type="text";inp.placeholder=p.connected?"Key saved (paste to replace)":"Paste API key";
+    const save=document.createElement("button");save.className="ghost";save.textContent="Save";
+    const status=document.createElement("small");status.textContent=p.from_env?"Set via environment variable":p.connected?"Connected":"Not connected";
+    if(p.from_env){inp.disabled=save.disabled=true}
+    save.onclick=async()=>{if(!inp.value.trim())return;await send("/api/setup/key",{provider:p.provider,key:inp.value.trim()},"PUT");inp.value="";loadSetup();loadModels()};
+    d.append(a,t,inp,save);t.appendChild(status);box.appendChild(d)})}
+
+async function loadTally(){const rows=await J("/api/tally");const box=$("tally");box.innerHTML=rows.length?"":'<p class="empty">No jobs recorded yet.</p>';
+  rows.forEach(r=>{const d=document.createElement("div");d.className="item";const n=document.createElement("span");n.textContent=r.label;
+    const c=document.createElement("span");c.style.color="var(--mute)";c.textContent=`${r.jobs} job${r.jobs===1?"":"s"}`+(r.escalated?`, ${r.escalated} escalated`:"");d.append(n,c);box.appendChild(d)})}
+$("tclear").onclick=async()=>{await fetch("/api/tally",{method:"DELETE"});loadTally()};
+loadModels();loadWs();
+</script>
+</body>
+</html>
