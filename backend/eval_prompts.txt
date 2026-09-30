@@ -1,0 +1,7 @@
+# One request per line. Replace these with your real ones.
+What is the difference between a mutex and a semaphore?
+Plan a 3-day launch for a small newsletter.
+Write a Python function that merges overlapping intervals, with tests.
+Summarize the pros and cons of remote work for a 10-person startup.
+Rewrite this to sound friendlier: Your request has been denied.
+Explain how vaccines train the immune system, and flag anything you're unsure about.
