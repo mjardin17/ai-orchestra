@@ -15,6 +15,8 @@ create table if not exists arena_runs(id text primary key, prompt text, results 
 create table if not exists tuning_log(created real, changes text);
 create table if not exists skills(id text primary key, name text, text text, created real);
 create table if not exists provider_keys(provider text primary key, key text);
+create table if not exists video_analyses(id text primary key, workspace_id text, filename text,
+    source_type text, source_ref text, transcript text, frame_notes text, result text, created real);
 insert or ignore into workspaces values('default','My workspace','');
 """)
 try:
@@ -221,3 +223,23 @@ def get_provider_key(provider):
 
 def stored_providers():
     return [r[0] for r in DB.execute("select provider from provider_keys")]
+
+
+def save_video_analysis(vid, wid, filename, source_type, source_ref, transcript, frame_notes, result):
+    DB.execute("insert into video_analyses values(?,?,?,?,?,?,?,?,?)",
+               (vid, wid, filename, source_type, source_ref, json.dumps(transcript), json.dumps(frame_notes),
+                json.dumps(result), time.time()))
+    DB.commit()
+
+
+def get_video_analysis(vid):
+    r = DB.execute("select * from video_analyses where id=?", (vid,)).fetchone()
+    return r and {"id": r["id"], "workspace_id": r["workspace_id"], "filename": r["filename"],
+                  "source_type": r["source_type"], "source_ref": r["source_ref"],
+                  "transcript": json.loads(r["transcript"]), "frame_notes": json.loads(r["frame_notes"]),
+                  "result": json.loads(r["result"])}
+
+
+def list_video_analyses(wid="default"):
+    rows = DB.execute("select id, filename, created from video_analyses where workspace_id=? order by created desc limit 50", (wid,))
+    return [dict(r) for r in rows]
