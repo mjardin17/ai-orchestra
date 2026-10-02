@@ -49,7 +49,7 @@ details{margin-top:4px;color:var(--mute);font-size:13px;white-space:pre-wrap}
 </style>
 </head>
 <body>
-<nav class="tabs"><button id="tRun">Run</button><button id="tArena" class="ghost">Arena</button><button id="tImage" class="ghost">Image</button><button id="tVideo" class="ghost">Video</button><button id="tModels" class="ghost">Models</button></nav>
+<nav class="tabs"><button id="tRun">Run</button><button id="tArena" class="ghost">Arena</button><button id="tImage" class="ghost">Image</button><button id="tVideo" class="ghost">Video</button><button id="tUnderstand" class="ghost">Understand</button><button id="tModels" class="ghost">Models</button></nav>
 <div class="app" id="runView">
   <section>
     <h2>Workspace</h2>
@@ -103,6 +103,24 @@ details{margin-top:4px;color:var(--mute);font-size:13px;white-space:pre-wrap}
     <div class="row"><button id="vgo">Generate</button></div>
     <p id="vstatus" class="empty"></p>
     <video id="vout" controls style="max-width:100%;display:none"></video>
+  </section>
+</div>
+<div id="understandView" hidden>
+  <section><h1>Understand a video</h1><p class="empty">Upload a video to transcribe it, optionally analyze it visually (needs a Gemini key), and get a structured summary. Transcription needs a Groq key — connect it in Models &rarr; Setup.</p>
+    <input type="file" id="ufile" accept="video/*">
+    <div class="row"><button id="ugo">Analyze</button></div>
+    <p id="ustatus" class="empty"></p>
+  </section>
+  <section id="uresult" hidden>
+    <h2>Summary</h2><p id="usummary"></p>
+    <h2>Claims</h2><ul id="uclaims"></ul>
+    <h2>Objects</h2><ul id="uobjects"></ul>
+    <h2>Events</h2><ul id="uevents"></ul>
+    <h2>Transcript</h2><div id="utranscript" style="max-height:260px;overflow:auto"></div>
+    <h2>Ask a follow-up question</h2>
+    <textarea id="uask" placeholder="Ask something about this video"></textarea>
+    <div class="row"><button id="uaskgo">Ask</button></div>
+    <p id="uanswer"></p>
   </section>
 </div>
 <div id="modelsView" hidden>
@@ -201,11 +219,12 @@ function renderModels(){
 $("cadd").onclick=async()=>{const model=$("cmodel").value.trim();if(!model)return;
   await send("/api/models/custom",{provider:$("cprov").value,model,label:$("clabel").value});$("cmodel").value=$("clabel").value="";loadModels()};
 $("allowpriv").onchange=()=>send("/api/settings",{allow_private:$("allowpriv").checked},"PUT");
-function showTab(name){["run","arena","image","video","models"].forEach(n=>{$(n+"View").hidden=n!==name;$("t"+cap(n)).className=n===name?"":"ghost"})}
+function showTab(name){["run","arena","image","video","understand","models"].forEach(n=>{$(n+"View").hidden=n!==name;$("t"+cap(n)).className=n===name?"":"ghost"})}
 $("tRun").onclick=()=>showTab("run");$("tModels").onclick=()=>{showTab("models");loadModels()};
 $("tArena").onclick=()=>{showTab("arena");loadArenaPicker()};
 $("tVideo").onclick=()=>showTab("video");
 $("tImage").onclick=()=>showTab("image");
+$("tUnderstand").onclick=()=>showTab("understand");
 
 async function loadArenaPicker(){if(!MD)MD=await J("/api/models");
   $("apick").innerHTML="";MD.models.filter(m=>m.available).forEach(m=>{const l=document.createElement("label");l.style.marginRight="12px";l.style.display="inline-block";
@@ -256,6 +275,42 @@ async function runImage(){
   $("igo").disabled=false;
 }
 $("igo").onclick=runImage;
+
+let currentVideoId=null;
+function fmtTs(s){const m=Math.floor(s/60),r=Math.floor(s%60);return String(m).padStart(2,"0")+":"+String(r).padStart(2,"0")}
+function renderVideoResult(data){
+  currentVideoId=data.id||currentVideoId;
+  $("uresult").hidden=false;
+  $("usummary").textContent=data.result.summary||"(no summary)";
+  $("uclaims").innerHTML="";(data.result.claims||[]).forEach(c=>{const li=document.createElement("li");li.textContent=c;$("uclaims").appendChild(li)});
+  $("uobjects").innerHTML="";(data.result.objects||[]).forEach(o=>{const li=document.createElement("li");li.textContent=o;$("uobjects").appendChild(li)});
+  $("uevents").innerHTML="";(data.result.events||[]).forEach(e=>{const li=document.createElement("li");li.textContent=fmtTs(e.timestamp)+" — "+e.label;$("uevents").appendChild(li)});
+  $("utranscript").innerHTML="";(data.transcript||[]).forEach(t=>{const p=document.createElement("p");p.style.margin="4px 0";p.innerHTML=`<b>${fmtTs(t.start)}</b> ${t.text}`;$("utranscript").appendChild(p)});
+  if(!(data.transcript||[]).length){$("utranscript").innerHTML='<p class="empty">No speech detected.</p>'}
+}
+async function runUnderstand(){
+  const f=$("ufile").files[0];if(!f)return;
+  $("ugo").disabled=true;$("uresult").hidden=true;$("ustatus").textContent="Uploading...";
+  const fd=new FormData();fd.append("file",f);fd.append("workspace_id",ws);
+  try{
+    const res=await fetch("/api/video/understand",{method:"POST",body:fd});
+    const rd=res.body.getReader(),dec=new TextDecoder();let buf="";
+    for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
+      const parts=buf.split("\n\n");buf=parts.pop();
+      for(const p of parts){if(!p.startsWith("data: "))continue;const ev=JSON.parse(p.slice(6));
+        if(ev.type==="error"){$("ustatus").textContent="Failed: "+ev.message;$("ugo").disabled=false}
+        else if(ev.type==="final"){$("ustatus").textContent="Done.";renderVideoResult(ev);$("ugo").disabled=false}
+        else $("ustatus").textContent={extracting_audio:"Extracting audio...",transcribing:"Transcribing...",analyzing_frames:"Analyzing frames...",synthesizing:"Summarizing..."}[ev.type]||ev.type}}
+  }catch(e){$("ustatus").textContent="Failed: "+e.message}
+  $("ugo").disabled=false;
+}
+$("ugo").onclick=runUnderstand;
+$("uaskgo").onclick=async()=>{
+  if(!currentVideoId)return;const q=$("uask").value.trim();if(!q)return;
+  $("uanswer").textContent="Thinking...";
+  const r=await send(`/api/video/understand/${currentVideoId}/ask`,{question:q},"POST");
+  $("uanswer").textContent=r.answer||r.error||"(no answer)";
+};
 
 async function loadSkills(){const all=await J("/api/skills");const w=wsList.find(w=>w.id===ws);const active=new Set(w&&w.skills?JSON.parse(w.skills):[]);
   $("skills").innerHTML=all.length?"":'<p class="empty">None yet.</p>';
