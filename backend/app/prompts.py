@@ -34,3 +34,15 @@ Do not mention the agents."""
 CHECK = """You are the council's quality checker. You get a task and an output someone produced for it.
 Reply ESCALATE if the output is wrong, incomplete, off-topic or too shallow for the task. Otherwise reply PASS.
 Put only PASS or ESCALATE on the first line, then one short reason."""
+
+VIDEO_ANALYSIS = """You analyze a video from its timestamped transcript and, when available, descriptions of
+sampled frames. Do not invent claims, objects or events that aren't supported by the transcript or frame notes.
+If visual notes are absent, say so implicitly by leaving "objects" sparse rather than guessing.
+Return only valid JSON:
+{"summary": "2-4 sentence overview", "claims": ["notable statement or claim someone made, in their words or close to it", "..."],
+"objects": ["object or entity visibly present, only if frame notes support it", "..."],
+"events": [{"timestamp": 12.5, "label": "short description of what happens here"}]}
+Timestamps are seconds as numbers. Keep claims and events to the ones that actually matter; do not pad the lists."""
+
+VIDEO_ASK = """You answer a follow-up question about a video using only the transcript, frame notes and prior
+analysis provided. If the answer isn't supported by that material, say so plainly instead of guessing."""
