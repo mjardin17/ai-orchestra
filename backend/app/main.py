@@ -3,12 +3,15 @@ from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import arena, brain, free_models, image_client, models, store, video_client
+from . import arena, brain, free_models, image_client, lessons, models, store, video_client
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
 PAGE = Path(__file__).resolve().parents[2] / "frontend" / "index.html"
+MAPS = PAGE.parent / "maps"
+app.mount("/maps", StaticFiles(directory=MAPS, html=False), name="maps")  # read-only project maps shown in the Maps tab
 
 
 class RunIn(BaseModel):
@@ -263,6 +266,38 @@ def brain_tune():
 @app.get("/api/brain/log")
 def brain_log():
     return store.tuning_log()
+
+
+class LessonIn(BaseModel):
+    rule: str
+    agent: str = "*"
+
+
+class LessonStatusIn(BaseModel):
+    status: str
+
+
+@app.get("/api/lessons")
+def get_lessons(status: Optional[str] = None):
+    return lessons.list_lessons(status)
+
+
+@app.post("/api/lessons")
+def post_lesson(body: LessonIn):
+    if not body.rule.strip():
+        raise HTTPException(400, "rule is required")
+    return {"id": lessons.add_lesson(body.rule, body.agent)}
+
+
+@app.put("/api/lessons/{lid}")
+def put_lesson(lid: str, body: LessonStatusIn):
+    try:
+        found = lessons.set_status(lid, body.status)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not found:
+        raise HTTPException(404, "lesson not found")
+    return {"ok": True}
 
 
 @app.get("/api/tally")

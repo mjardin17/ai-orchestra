@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BossLister Map</title>
+<style>
+:root{--bg:#f6f4ef;--ink:#1d1b16;--mute:#6b665b;--card:#fff;--line:#c9c3b4;--ok:#1f8a4c;--warn:#c98a00;--bad:#c2382d;--off:#8a8678;--built:#3b6ea5}
+@media (prefers-color-scheme:dark){:root{--bg:#14130f;--ink:#efece3;--mute:#a09b8c;--card:#1f1d17;--line:#46433a;--ok:#46c27a;--warn:#e0a82e;--bad:#ee6a5e;--off:#8d897a;--built:#6aa3de}}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,sans-serif}
+header{padding:18px 20px 6px}h1{margin:0;font:700 22px/1.2 Georgia,serif}.sub{color:var(--mute);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;padding:6px 20px 10px;color:var(--mute);font-size:12.5px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.wrap{overflow-x:auto;padding:0 12px 24px}svg{min-width:1080px;width:100%;height:auto;display:block}
+.col{font:600 11px system-ui;letter-spacing:.08em;fill:var(--mute);text-transform:uppercase}
+.node rect{fill:var(--card);stroke:var(--line);stroke-width:1.2;rx:9}
+.node text.t{font:600 13px system-ui;fill:var(--ink)}.node text.s{font:11.5px system-ui;fill:var(--mute)}
+.edge{stroke:var(--line);stroke-width:1.2;fill:none}.edge.hot{stroke:var(--bad);stroke-dasharray:5 4}
+.ok{fill:var(--ok)}.warn{fill:var(--warn)}.bad{fill:var(--bad)}.off{fill:var(--off)}.built{fill:var(--built)}
+.note{max-width:1060px;margin:0 auto;padding:0 20px 28px;color:var(--mute);font-size:13px}.note b{color:var(--ink)}
+.note li{margin:3px 0}
+</style></head><body>
+<header><h1>BossLister — what's what</h1><div class="sub">Checked live on Oct 2, 2026 · C:\Users\jjard\claude\BossListers · 98 products in the database</div></header>
+<div class="legend">
+<span><i style="background:var(--ok)"></i>Working (verified live)</span>
+<span><i style="background:var(--warn)"></i>Partly working</span>
+<span><i style="background:var(--bad)"></i>Broken — needs a login or token</span>
+<span><i style="background:var(--off)"></i>Not set up</span>
+<span><i style="background:var(--built)"></i>Built in code, not run today</span>
+</div>
+<div class="wrap">
+<svg viewBox="0 0 1100 520" role="img" aria-label="BossLister architecture map">
+<text class="col" x="20" y="22">Pages you use</text>
+<text class="col" x="250" y="22">Engines inside the app</text>
+<text class="col" x="520" y="22">Marketplace connections</text>
+<text class="col" x="830" y="22">Shared plumbing</text>
+
+<!-- edges -->
+<path class="edge" d="M190 78 H250"/><path class="edge" d="M190 140 H220 V202 H250"/><path class="edge" d="M190 202 H250"/>
+<path class="edge" d="M190 264 H250"/><path class="edge" d="M190 388 H250"/>
+<path class="edge" d="M440 202 H480"/><path class="edge" d="M440 264 H480"/>
+<path class="edge" d="M480 78 V456"/>
+<path class="edge" d="M480 78 H520"/><path class="edge" d="M480 140 H520"/><path class="edge" d="M480 202 H520"/><path class="edge" d="M480 264 H520"/>
+<path class="edge" d="M480 326 H520"/><path class="edge" d="M480 388 H520"/><path class="edge" d="M480 456 H520"/>
+<path class="edge" d="M710 82 H830"/><path class="edge" d="M710 154 H830"/>
+<path class="edge" d="M710 226 H830"/>
+
+<!-- PAGES -->
+<g class="node"><rect x="20" y="52" width="170" height="52"/><circle class="built" cx="36" cy="78" r="5"/><text class="t" x="50" y="75">Capture / Card scan</text><text class="s" x="50" y="92">photo → product</text></g>
+<g class="node"><rect x="20" y="114" width="170" height="52"/><circle class="built" cx="36" cy="140" r="5"/><text class="t" x="50" y="137">Omni-Lister</text><text class="s" x="50" y="154">any product → listing</text></g>
+<g class="node"><rect x="20" y="176" width="170" height="52"/><circle class="built" cx="36" cy="202" r="5"/><text class="t" x="50" y="199">Post page</text><text class="s" x="50" y="216">send to many channels</text></g>
+<g class="node"><rect x="20" y="238" width="170" height="52"/><circle class="warn" cx="36" cy="264" r="5"/><text class="t" x="50" y="261">Connected Accounts</text><text class="s" x="50" y="278">one sign-in per channel</text></g>
+<g class="node"><rect x="20" y="300" width="170" height="52"/><circle class="built" cx="36" cy="326" r="5"/><text class="t" x="50" y="323">Orders / History</text><text class="s" x="50" y="340">sales and past posts</text></g>
+<g class="node"><rect x="20" y="362" width="170" height="52"/><circle class="built" cx="36" cy="388" r="5"/><text class="t" x="50" y="385">Video Studio</text><text class="s" x="50" y="402">ads from your photos</text></g>
+
+<!-- ENGINES -->
+<g class="node"><rect x="250" y="52" width="190" height="52"/><circle class="built" cx="266" cy="78" r="5"/><text class="t" x="280" y="75">AI analysis + pricing</text><text class="s" x="280" y="92">comps, fees, card prices</text></g>
+<g class="node"><rect x="250" y="176" width="190" height="52"/><circle class="warn" cx="266" cy="202" r="5"/><text class="t" x="280" y="199">Listing / post engine</text><text class="s" x="280" y="216">dry-run passes for 6 of 9</text></g>
+<g class="node"><rect x="250" y="238" width="190" height="52"/><circle class="warn" cx="266" cy="264" r="5"/><text class="t" x="280" y="261">Inventory sync</text><text class="s" x="280" y="278">eBay · Shopify · IG · FB</text></g>
+<g class="node"><rect x="250" y="300" width="190" height="52"/><circle class="warn" cx="266" cy="326" r="5"/><text class="t" x="280" y="323">Token vault + monitor</text><text class="s" x="280" y="340">npm run token-health</text></g>
+<g class="node"><rect x="250" y="362" width="190" height="52"/><circle class="built" cx="266" cy="388" r="5"/><text class="t" x="280" y="385">Video / commercial</text><text class="s" x="280" y="402">cutter + voice + music</text></g>
+
+<!-- CONNECTORS -->
+<g class="node"><rect x="520" y="52" width="190" height="52"/><circle class="bad" cx="536" cy="78" r="5"/><text class="t" x="550" y="75">eBay</text><text class="s" x="550" y="92">login rejected by eBay · 97 listings</text></g>
+<g class="node"><rect x="520" y="114" width="190" height="52"/><circle class="ok" cx="536" cy="140" r="5"/><text class="t" x="550" y="137">Shopify</text><text class="s" x="550" y="154">Jardins Outpost · connected</text></g>
+<g class="node"><rect x="520" y="176" width="190" height="52"/><circle class="ok" cx="536" cy="202" r="5"/><text class="t" x="550" y="199">Instagram</text><text class="s" x="550" y="216">@jardinsoutpost · valid</text></g>
+<g class="node"><rect x="520" y="238" width="190" height="52"/><circle class="bad" cx="536" cy="264" r="5"/><text class="t" x="550" y="261">Facebook Marketplace</text><text class="s" x="550" y="278">token expired Sept 30</text></g>
+<g class="node"><rect x="520" y="300" width="190" height="52"/><circle class="warn" cx="536" cy="326" r="5"/><text class="t" x="550" y="323">Etsy</text><text class="s" x="550" y="340">no shop connected</text></g>
+<g class="node"><rect x="520" y="362" width="190" height="52"/><circle class="warn" cx="536" cy="388" r="5"/><text class="t" x="550" y="385">TikTok Shop</text><text class="s" x="550" y="402">no shop connected</text></g>
+
+<g class="node"><rect x="520" y="424" width="190" height="64"/><circle class="off" cx="536" cy="450" r="5"/><text class="t" x="550" y="447">Not set up yet</text><text class="s" x="550" y="464">Bonanza · Amazon · WooCommerce</text><text class="s" x="550" y="479">need keys or registration</text></g>
+
+<!-- BEHIND THE SCENES -->
+<g class="node"><rect x="830" y="52" width="250" height="60"/><circle class="ok" cx="846" cy="82" r="5"/><text class="t" x="860" y="78">Supabase "Boss listers prod"</text><text class="s" x="860" y="96">98 products · saved logins · RLS</text></g>
+<g class="node"><rect x="830" y="124" width="250" height="60"/><circle class="warn" cx="846" cy="154" r="5"/><text class="t" x="860" y="150">.env.local (tokens)</text><text class="s" x="860" y="168">app + editor both write to it</text></g>
+<g class="node"><rect x="830" y="196" width="250" height="60"/><circle class="ok" cx="846" cy="226" r="5"/><text class="t" x="860" y="222">Python bridge :8791</text><text class="s" x="860" y="240">eBay · Etsy · FB listing (dry-run only)</text></g>
+</svg></div>
+<div class="note"><b>Plain version</b>
+<ul>
+<li><b>Working:</b> Shopify, Instagram, the database (98 products) and the local bridge.</li>
+<li><b>One sign-in from you fixes it:</b> eBay (Connect on the Channels page), Facebook (long-lived token), Etsy and TikTok Shop (connect a shop).</li>
+<li><b>Needs registration first:</b> Bonanza, Amazon, WooCommerce.</li>
+<li><b>Built but not run today:</b> capture, pricing, Omni-Lister, Video Studio, orders.</li>
+</ul></div>
+</body></html>

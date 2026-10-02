@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Empire OS Map</title>
+<style>
+:root{--bg:#f6f4ef;--ink:#1d1b16;--mute:#6b665b;--card:#fff;--line:#c9c3b4;--ok:#1f8a4c;--warn:#c98a00;--bad:#c2382d;--off:#8a8678;--built:#3b6ea5}
+@media (prefers-color-scheme:dark){:root{--bg:#14130f;--ink:#efece3;--mute:#a09b8c;--card:#1f1d17;--line:#46433a;--ok:#46c27a;--warn:#e0a82e;--bad:#ee6a5e;--off:#8d897a;--built:#6aa3de}}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,Segoe UI,sans-serif}
+header{padding:18px 20px 6px}h1{margin:0;font:700 22px/1.2 Georgia,serif}.sub{color:var(--mute);margin-top:2px}
+.legend{display:flex;flex-wrap:wrap;gap:14px;padding:6px 20px 10px;color:var(--mute);font-size:12.5px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.wrap{overflow-x:auto;padding:0 12px 24px}svg{min-width:1080px;width:100%;height:auto;display:block}
+.col{font:600 11px system-ui;letter-spacing:.08em;fill:var(--mute);text-transform:uppercase}
+.node rect{fill:var(--card);stroke:var(--line);stroke-width:1.2;rx:9}
+.node text.t{font:600 13px system-ui;fill:var(--ink)}.node text.s{font:11.5px system-ui;fill:var(--mute)}
+.edge{stroke:var(--line);stroke-width:1.2;fill:none}.edge.hot{stroke:var(--bad);stroke-dasharray:5 4}
+.ok{fill:var(--ok)}.warn{fill:var(--warn)}.bad{fill:var(--bad)}.off{fill:var(--off)}.built{fill:var(--built)}
+.note{max-width:1060px;margin:0 auto;padding:0 20px 28px;color:var(--mute);font-size:13px}.note b{color:var(--ink)}
+.note li{margin:3px 0}
+</style></head><body>
+<header><h1>Empire OS - what's what</h1><div class="sub">Checked Oct 2, 2026 · empire-os folder · core tests: 128 of 129 pass</div></header>
+<div class="legend"><span><i style="background:var(--ok)"></i>Working (tests pass)</span><span><i style="background:var(--warn)"></i>Partly working</span><span><i style="background:var(--bad)"></i>Broken</span><span><i style="background:var(--off)"></i>Not wired yet</span><span><i style="background:var(--built)"></i>Built, not run today</span></div>
+<div class="wrap"><svg viewBox="0 0 960 520" role="img" aria-label="Empire OS map">
+<text class="col" x="20" y="22">Core services (frozen)</text><text class="col" x="330" y="22">Apps / modules</text><text class="col" x="660" y="22">Agents</text><text class="col" x="660" y="288">Channels</text>
+<path class="edge" d="M250 78 H290 V480"/><path class="edge" d="M250 140 H290"/><path class="edge" d="M250 202 H290"/><path class="edge" d="M250 264 H290"/><path class="edge" d="M250 326 H290"/><path class="edge" d="M250 388 H290"/><path class="edge" d="M290 78 H330"/><path class="edge" d="M290 140 H330"/><path class="edge" d="M290 202 H330"/><path class="edge" d="M290 264 H330"/><path class="edge" d="M290 326 H330"/><path class="edge" d="M290 388 H330"/><path class="edge" d="M290 450 H330"/><path class="edge" d="M580 78 H620 V500"/><path class="edge" d="M620 84 H660"/><path class="edge" d="M620 160 H660"/><path class="edge" d="M620 230 H660"/><path class="edge" d="M620 326 H660"/><path class="edge" d="M620 388 H660"/><path class="edge" d="M620 450 H660"/>
+<g class="node"><rect x="20" y="52" width="230" height="52"/><circle class="ok" cx="36" cy="78" r="5"/><text class="t" x="50" y="75">Memory Bus</text><text class="s" x="50" y="92">shared memory for every module</text></g>
+<g class="node"><rect x="20" y="114" width="230" height="52"/><circle class="ok" cx="36" cy="140" r="5"/><text class="t" x="50" y="137">Event Bus</text><text class="s" x="50" y="154">pub/sub between modules</text></g>
+<g class="node"><rect x="20" y="176" width="230" height="52"/><circle class="ok" cx="36" cy="202" r="5"/><text class="t" x="50" y="199">Workflow Engine</text><text class="s" x="50" y="216">multi-step pipelines</text></g>
+<g class="node"><rect x="20" y="238" width="230" height="52"/><circle class="ok" cx="36" cy="264" r="5"/><text class="t" x="50" y="261">AI Router</text><text class="s" x="50" y="278">picks Claude / Gemini / GPT / Ollama</text></g>
+<g class="node"><rect x="20" y="300" width="230" height="52"/><circle class="ok" cx="36" cy="326" r="5"/><text class="t" x="50" y="323">Module Gateway</text><text class="s" x="50" y="340">modules talk through it</text></g>
+<g class="node"><rect x="20" y="362" width="230" height="52"/><circle class="warn" cx="36" cy="388" r="5"/><text class="t" x="50" y="385">Plugin Registry</text><text class="s" x="50" y="402">1 test failing (type filter)</text></g>
+<g class="node"><rect x="330" y="52" width="250" height="52"/><circle class="built" cx="346" cy="78" r="5"/><text class="t" x="360" y="75">Empire Server + Web + Desktop</text><text class="s" x="360" y="92">API, dashboard, Electron app</text></g>
+<g class="node"><rect x="330" y="114" width="250" height="52"/><circle class="built" cx="346" cy="140" r="5"/><text class="t" x="360" y="137">Empire Assistant</text><text class="s" x="360" y="154">a module - owns no memory</text></g>
+<g class="node"><rect x="330" y="176" width="250" height="52"/><circle class="built" cx="346" cy="202" r="5"/><text class="t" x="360" y="199">CrossPost Enterprise</text><text class="s" x="360" y="216">social posting + BossListers panel</text></g>
+<g class="node"><rect x="330" y="238" width="250" height="52"/><circle class="built" cx="346" cy="264" r="5"/><text class="t" x="360" y="261">StoryForge</text><text class="s" x="360" y="278">books and video storytelling</text></g>
+<g class="node"><rect x="330" y="300" width="250" height="52"/><circle class="built" cx="346" cy="326" r="5"/><text class="t" x="360" y="323">Video pipeline + rendering</text><text class="s" x="360" y="340">episodes, commercials</text></g>
+<g class="node"><rect x="330" y="362" width="250" height="52"/><circle class="built" cx="346" cy="388" r="5"/><text class="t" x="360" y="385">Merch Ops + Social Engine</text><text class="s" x="360" y="402">print-on-demand, posting</text></g>
+<g class="node"><rect x="330" y="424" width="250" height="52"/><circle class="warn" cx="346" cy="450" r="5"/><text class="t" x="360" y="447">BossLister (inside Empire OS)</text><text class="s" x="360" y="464">only 5 files - real app is separate</text></g>
+<g class="node"><rect x="660" y="52" width="240" height="64"/><circle class="built" cx="676" cy="84" r="5"/><text class="t" x="690" y="81">Python agents</text><text class="s" x="690" y="98">orchestrator, ChatGPT + Gemini bots,</text><text class="s" x="690" y="112">sales tracker, price sync, scanner</text></g>
+<g class="node"><rect x="660" y="126" width="240" height="52"/><circle class="built" cx="676" cy="152" r="5"/><text class="t" x="690" y="149">Council bots (9)</text><text class="s" x="690" y="166">video quality checks</text></g>
+<g class="node"><rect x="660" y="188" width="240" height="52"/><circle class="off" cx="676" cy="214" r="5"/><text class="t" x="690" y="211">ai-orchestra (training)</text><text class="s" x="690" y="228">Claude + Codex drills - to be wired in</text></g>
+<g class="node"><rect x="660" y="300" width="240" height="52"/><circle class="built" cx="676" cy="326" r="5"/><text class="t" x="690" y="323">Gods & Glory</text><text class="s" x="690" y="340">YouTube channel files</text></g>
+<g class="node"><rect x="660" y="362" width="240" height="52"/><circle class="built" cx="676" cy="388" r="5"/><text class="t" x="690" y="385">Little Olympus</text><text class="s" x="690" y="402">kids channel files</text></g>
+<g class="node"><rect x="660" y="424" width="240" height="52"/><circle class="built" cx="676" cy="450" r="5"/><text class="t" x="690" y="447">Mech Legends</text><text class="s" x="690" y="464">channel launch files</text></g>
+</svg></div>
+<div class="note"><b>Plain version</b><ul><li><b>Core is solid:</b> five of six core services pass every test; the plugin registry has one failing test.</li><li><b>Apps are built but I have not run them</b> - only their code and folders were checked.</li><li><b>BossLister:</b> the copy inside Empire OS is a small stub. The real app lives in its own folder (see the BossLister map).</li><li><b>Training facility:</b> ai-orchestra is not wired into Empire OS yet - that is the next step.</li></ul></div></body></html>

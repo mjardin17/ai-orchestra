@@ -49,7 +49,7 @@ details{margin-top:4px;color:var(--mute);font-size:13px;white-space:pre-wrap}
 </style>
 </head>
 <body>
-<nav class="tabs"><button id="tRun">Run</button><button id="tArena" class="ghost">Arena</button><button id="tImage" class="ghost">Image</button><button id="tVideo" class="ghost">Video</button><button id="tModels" class="ghost">Models</button></nav>
+<nav class="tabs"><button id="tRun">Run</button><button id="tArena" class="ghost">Arena</button><button id="tImage" class="ghost">Image</button><button id="tVideo" class="ghost">Video</button><button id="tModels" class="ghost">Models</button><button id="tMaps" class="ghost">Maps</button></nav>
 <div class="app" id="runView">
   <section>
     <h2>Workspace</h2>
@@ -104,6 +104,11 @@ details{margin-top:4px;color:var(--mute);font-size:13px;white-space:pre-wrap}
     <p id="vstatus" class="empty"></p>
     <video id="vout" controls style="max-width:100%;display:none"></video>
   </section>
+</div>
+<div id="mapsView" hidden>
+  <section><h1>Maps</h1><p class="empty">What each project is made of and what works right now. Colors come from live checks, not guesses.</p>
+    <div class="row"><button id="mapBoss">BossLister</button><button id="mapEmpire" class="ghost">Empire OS</button></div>
+    <iframe id="mapFrame" title="Project map" src="/maps/bosslister.html" style="width:100%;height:78vh;border:1px solid #c9c3b4;border-radius:8px;margin-top:10px"></iframe></section>
 </div>
 <div id="modelsView" hidden>
   <section><h1>Models</h1><p class="empty">Tick the models you want in your pool. The council brain rates each job, starts with the cheapest model that is capable enough, and moves up only if the result isn't good enough. Set each model's capability (1-5) to match how much you trust it. Greyed-out models need a key from the provider (free where they offer one), or the Codex CLI login for ChatGPT, first.</p><div id="mlist"></div></section>
@@ -201,10 +206,13 @@ function renderModels(){
 $("cadd").onclick=async()=>{const model=$("cmodel").value.trim();if(!model)return;
   await send("/api/models/custom",{provider:$("cprov").value,model,label:$("clabel").value});$("cmodel").value=$("clabel").value="";loadModels()};
 $("allowpriv").onchange=()=>send("/api/settings",{allow_private:$("allowpriv").checked},"PUT");
-function showTab(name){["run","arena","image","video","models"].forEach(n=>{$(n+"View").hidden=n!==name;$("t"+cap(n)).className=n===name?"":"ghost"})}
+function showTab(name){["run","arena","image","video","models","maps"].forEach(n=>{$(n+"View").hidden=n!==name;$("t"+cap(n)).className=n===name?"":"ghost"})}
 $("tRun").onclick=()=>showTab("run");$("tModels").onclick=()=>{showTab("models");loadModels()};
 $("tArena").onclick=()=>{showTab("arena");loadArenaPicker()};
 $("tVideo").onclick=()=>showTab("video");
+$("tMaps").onclick=()=>showTab("maps");
+$("mapBoss").onclick=()=>{$("mapFrame").src="/maps/bosslister.html";$("mapBoss").className="";$("mapEmpire").className="ghost"};
+$("mapEmpire").onclick=()=>{$("mapFrame").src="/maps/empire-os.html";$("mapEmpire").className="";$("mapBoss").className="ghost"};
 $("tImage").onclick=()=>showTab("image");
 
 async function loadArenaPicker(){if(!MD)MD=await J("/api/models");
