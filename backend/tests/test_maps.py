@@ -22,3 +22,8 @@ def test_unknown_map_is_404():
 
 def test_maps_cannot_escape_the_folder():
     assert c.get("/maps/..%2Findex.html").status_code in (400, 404)
+
+
+def test_integration_checklist_is_served():
+    r = c.get("/maps/integration.html")
+    assert r.status_code == 200 and "done vs. to do" in r.text
