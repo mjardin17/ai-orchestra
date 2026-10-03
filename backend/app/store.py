@@ -15,7 +15,7 @@ create table if not exists arena_runs(id text primary key, prompt text, results 
 create table if not exists tuning_log(created real, changes text);
 create table if not exists skills(id text primary key, name text, text text, created real);
 create table if not exists provider_keys(provider text primary key, key text);
-insert or ignore into workspaces values('default','My workspace','');
+insert or ignore into workspaces(id, name, notes) values('default','My workspace','');
 """)
 try:
     DB.execute("alter table runs add column workspace_id text default 'default'")
