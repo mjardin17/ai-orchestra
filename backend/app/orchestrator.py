@@ -1,5 +1,5 @@
 import asyncio, json, os, re, uuid
-from . import brain, lessons, models, store
+from . import brain, lessons, models, skill_selector, store
 from .claude_client import run_agent
 from .prompts import CHECK, DIRECT, PROMPTS, REVISE, SUPERVISOR, SYNTH
 
@@ -122,6 +122,10 @@ async def orchestrate(prompt: str, ws_id=None):
         if not pool:
             raise RuntimeError("No models are enabled. Turn at least one on in the Models tab.")
         ctx = store.context(ws_id)
+        skill_text, picked = skill_selector.for_job(prompt, ws_id)  # analyze the job, pick the best saved skills
+        if picked:
+            ctx = skill_text + chr(10) * 2 + ctx if ctx else skill_text
+            yield {"type": "skills", "picked": [{"name": p["name"], "matched": p["matched"]} for p in picked]}
         full = f"{ctx}\n\nCurrent request:\n{prompt}" if ctx else prompt
         route = parse_route(await run_agent(SUPERVISOR, full[:4000], os.getenv("ROUTER_TIER", "fast")))
         route["private"] = store.has_private(ws_id)

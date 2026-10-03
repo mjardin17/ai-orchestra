@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import arena, brain, free_models, image_client, lessons, models, store, video_client
+from . import arena, brain, free_models, image_client, lessons, models, skill_selector, store, video_client
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -275,6 +275,17 @@ class LessonIn(BaseModel):
 
 class LessonStatusIn(BaseModel):
     status: str
+
+
+class SuggestIn(BaseModel):
+    prompt: str
+
+
+@app.post("/api/skills/suggest")
+def skills_suggest(body: SuggestIn):
+    if not body.prompt.strip():
+        raise HTTPException(400, "prompt is required")
+    return skill_selector.select_for(body.prompt)
 
 
 @app.get("/api/lessons")

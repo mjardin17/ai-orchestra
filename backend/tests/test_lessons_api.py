@@ -23,3 +23,14 @@ def test_bad_status_and_missing_lesson():
 
 def test_empty_rule_rejected():
     assert c.post("/api/lessons", json={"rule": "  "}).status_code == 400
+
+
+def test_skill_suggest_endpoint_returns_matches():
+    store.DB.execute("delete from skills"); store.DB.commit()
+    store.add_skill("Ebay titles", "Write eBay listing titles with brand and model.")
+    r = c.post("/api/skills/suggest", json={"prompt": "write an ebay listing title"})
+    assert r.status_code == 200 and r.json()[0]["name"] == "Ebay titles"
+
+
+def test_skill_suggest_rejects_empty_prompt():
+    assert c.post("/api/skills/suggest", json={"prompt": "  "}).status_code == 400
