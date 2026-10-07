@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import arena, brain, free_models, image_client, lessons, models, skill_selector, store, video_client
+from . import arena, bench, brain, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, video_client
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -20,8 +20,10 @@ class RunIn(BaseModel):
 
 
 class ArenaIn(BaseModel):
-    prompt: str
+    prompt: str = ""
     model_ids: list
+    market: bool = False
+    task_id: Optional[str] = None
 
 
 class WinnerIn(BaseModel):
@@ -235,7 +237,7 @@ def put_settings(body: SettingsIn):
 @app.post("/api/arena")
 async def arena_run(body: ArenaIn):
     async def stream():
-        async for ev in arena.run(body.prompt, body.model_ids):
+        async for ev in arena.run(body.prompt, body.model_ids, body.market, body.task_id):
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -256,6 +258,115 @@ def arena_export():
     from fastapi.responses import PlainTextResponse
     return PlainTextResponse(arena.export_jsonl(), media_type="application/jsonl",
                               headers={"Content-Disposition": "attachment; filename=training_pairs.jsonl"})
+
+
+@app.get("/api/market/status")
+def market_status():
+    try:
+        return market_data.status()
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/market/digest")
+def market_digest():
+    try:
+        return market_data.digest()
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/market/evidence")
+def market_evidence():
+    """The exact text every Arena model and the judge receive in market mode."""
+    from fastapi.responses import PlainTextResponse
+    try:
+        return PlainTextResponse(market_data.build_evidence()["text"])
+    except (RuntimeError, OSError, ValueError) as e:
+        raise HTTPException(500, str(e))
+
+
+class HealthIn(BaseModel):
+    model_ids: Optional[list] = None   # default: Claude Haiku only (cheapest real round trip)
+
+
+class HumanScoreIn(BaseModel):
+    criterion: str
+    score: float
+    rater: str = "josh"
+    notes: str = ""
+
+
+@app.get("/api/providers")
+def providers_overview():
+    """Every catalog model with its configuration, declared capabilities, last health check and support status."""
+    return providers.overview(models.catalog())
+
+
+@app.post("/api/providers/health")
+async def providers_health(body: HealthIn):
+    ids = body.model_ids or ["claude:haiku"]
+    out = []
+    for mid in ids:
+        m = models.find(mid)
+        if not m:
+            raise HTTPException(404, f"unknown model: {mid}")
+        out.append(await providers.health_check(m))
+    return out
+
+
+@app.get("/api/bench/benchmarks")
+def bench_benchmarks():
+    return bench.list_benchmarks()
+
+
+@app.post("/api/bench/register-market")
+def bench_register_market():
+    try:
+        return bench.register_market_benchmark()
+    except (RuntimeError, OSError, ValueError) as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/bench/link-legacy")
+def bench_link_legacy():
+    return bench.link_legacy_arena_runs()
+
+
+@app.get("/api/bench/tasks")
+def bench_tasks(benchmark_id: Optional[str] = None):
+    return bench.list_tasks(benchmark_id)   # hidden answer keys are never included
+
+
+@app.get("/api/bench/episodes")
+def bench_episodes():
+    return bench.list_episodes()
+
+
+@app.get("/api/bench/episodes/{eid}/scorecard")
+def bench_scorecard(eid: str):
+    try:
+        return bench.scorecard(eid)
+    except KeyError:
+        raise HTTPException(404, "episode not found")
+
+
+@app.get("/api/bench/attempts/{aid}/trace")
+def bench_trace(aid: str):
+    if not bench.get_attempt(aid):
+        raise HTTPException(404, "attempt not found")
+    return bench.trace_for(aid)
+
+
+@app.put("/api/bench/attempts/{aid}/human-score")
+def bench_human_score(aid: str, body: HumanScoreIn):
+    try:
+        bench.add_human_score(aid, body.criterion, body.score, body.rater, body.notes)
+    except KeyError:
+        raise HTTPException(404, "attempt not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "human_scores": bench.human_scores(aid)}
 
 
 @app.post("/api/brain/tune")

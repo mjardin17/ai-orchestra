@@ -79,6 +79,7 @@ details{margin-top:4px;color:var(--mute);font-size:13px;white-space:pre-wrap}
   <section><h1>Arena</h1><p class="empty">Pick two or more models, run the same prompt, and compare. A judge suggests the best; you can pick your own instead. Every comparison can be exported as training data.</p>
     <div id="apick"></div>
     <textarea id="aq" placeholder="Prompt to compare across models"></textarea>
+    <label><input type="checkbox" id="amarket"> Use Market Intelligence evidence (real files from the folder set in MARKET_DATA_DIR; every model and the judge get the identical text)</label>
     <div class="row"><button id="arun">Compare</button><button id="aexp" class="ghost">Export training data (.jsonl)</button></div>
     <p id="areason" class="empty"></p>
     <div id="acols" class="arena-cols"></div>
@@ -223,19 +224,24 @@ async function runArena(){
   const ids=[...$("apick").querySelectorAll("input:checked")].map(c=>c.value);const prompt=$("aq").value.trim();
   if(ids.length<2){alert("Pick at least 2 models.");return}if(!prompt)return;
   $("acols").innerHTML="";$("areason").textContent="Running...";let runId=null;
-  const res=await fetch("/api/arena",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,model_ids:ids})});
+  const res=await fetch("/api/arena",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,model_ids:ids,market:$("amarket").checked})});
   const rd=res.body.getReader(),dec=new TextDecoder();let buf="";
   for(;;){const{done,value}=await rd.read();if(done)break;buf+=dec.decode(value,{stream:true});
     const parts=buf.split("\n\n");buf=parts.pop();
     for(const p of parts){if(!p.startsWith("data: "))continue;const ev=JSON.parse(p.slice(6));
       if(ev.type==="arena_run")runId=ev.id;
+      else if(ev.type==="evidence")$("areason").textContent="Evidence from "+ev.source+" ("+Object.entries(ev.files).map(([k,v])=>k+": "+v).join(", ")+"; ~"+ev.est_tokens+" tokens; sha256 "+ev.sha256.slice(0,12)+"). Running...";
       else if(ev.type==="model_done"){const d=document.createElement("div");d.className="arena-col";d.id="ac-"+ev.id;
         const h=document.createElement("b");h.textContent=ev.label;const pre=document.createElement("pre");pre.textContent=ev.text;
         const btn=document.createElement("button");btn.className="ghost";btn.textContent="Mark best";
         btn.onclick=async()=>{await send("/api/arena/winner",{run_id:runId,winner_id:ev.id},"PUT");
           document.querySelectorAll(".arena-col").forEach(c=>c.classList.remove("winner"));d.classList.add("winner")};
         d.append(h,pre,btn);$("acols").appendChild(d)}
-      else if(ev.type==="arena_final"){$("areason").textContent="Suggested best: "+lab(ev.suggested[0]);
+      else if(ev.type==="judge"){window.arenaJudge=ev}
+      else if(ev.type==="arena_final"){const j=window.arenaJudge||{};
+        $("areason").textContent=ev.judge_status==="ok"?"Suggested best (blind judge"+(j.conflict&&j.conflict!=="none"?", same "+j.conflict.replace("same_","")+" as a contestant":"")+"): "+lab(ev.suggested[0])
+          :"No judge ranking ("+ev.judge_status+(j.error?": "+j.error.kind+" - "+j.error.message:j.reason?": "+j.reason:"")+"). Showing run order; pick the best yourself.";
+        window.arenaJudge=null;
         const el=$("ac-"+ev.suggested[0]);if(el)el.classList.add("winner")}
       else if(ev.type==="error")$("areason").textContent=ev.message}}
 }

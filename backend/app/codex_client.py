@@ -1,13 +1,15 @@
 """ChatGPT through the official Codex CLI, signed in with your ChatGPT account (no API key).
 Setup: npm i -g @openai/codex, then `codex login`. Usage counts against your ChatGPT plan's Codex allowance."""
-import asyncio, shutil
+import asyncio, os, shutil
+
+TIMEOUT = float(os.getenv("CODEX_TIMEOUT", "300"))
 
 
 def available() -> bool:
     return shutil.which("codex") is not None
 
 
-async def call(system: str, prompt: str, model=None) -> str:
+async def call(system: str, prompt: str, model=None, timeout=None) -> str:
     exe = shutil.which("codex")
     if not exe:
         raise RuntimeError("Codex CLI not installed")
@@ -15,7 +17,7 @@ async def call(system: str, prompt: str, model=None) -> str:
     proc = await asyncio.create_subprocess_exec(
         *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
-        out, err = await asyncio.wait_for(proc.communicate(f"{system}\n\n---\nUser request:\n{prompt}".encode()), timeout=300)
+        out, err = await asyncio.wait_for(proc.communicate(f"{system}\n\n---\nUser request:\n{prompt}".encode()), timeout=timeout or TIMEOUT)
     except BaseException:  # timeout or Stop: don't leave the process running
         if proc.returncode is None:
             proc.kill()

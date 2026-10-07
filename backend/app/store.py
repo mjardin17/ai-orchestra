@@ -180,7 +180,8 @@ def clear_tally():
 
 
 def save_arena(rid, prompt, results, suggested):
-    DB.execute("insert into arena_runs values(?,?,?,?,?)", (rid, prompt, json.dumps(results), suggested, time.time()))
+    DB.execute("insert into arena_runs(id, prompt, results, winner, created) values(?,?,?,?,?)",
+               (rid, prompt, json.dumps(results), suggested, time.time()))
     DB.commit()
 
 
