@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from . import arena, brain, free_models, image_client, lessons, models, store, video_client, video_understanding
+from . import arena, brain, facility, free_models, image_client, lessons, models, store, video_client, video_understanding
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -90,6 +90,15 @@ async def run(body: RunIn):
         async for ev in orchestrate(body.prompt, body.workspace_id):
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/api/tasks/run")
+async def run_facility_task(body: dict):
+    """Facility task loop: isolated workspace, agent, verification by command, evidence receipt."""
+    try:
+        return await facility.run_task(body)
+    except facility.TaskError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/workspaces")
