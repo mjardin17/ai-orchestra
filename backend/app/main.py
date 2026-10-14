@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from . import arena, brain, free_models, image_client, models, store, video_client, video_understanding
+from . import arena, brain, free_models, image_client, lessons, models, store, video_client, video_understanding
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -325,6 +325,38 @@ def get_tally():
 @app.delete("/api/tally")
 def reset_tally():
     store.clear_tally()
+    return {"ok": True}
+
+
+class LessonIn(BaseModel):
+    rule: str
+    agent: str = "*"
+
+
+class LessonStatusIn(BaseModel):
+    status: str
+
+
+@app.get("/api/lessons")
+def get_lessons(status: Optional[str] = None):
+    return lessons.list_lessons(status)
+
+
+@app.post("/api/lessons")
+def post_lesson(body: LessonIn):
+    if not body.rule.strip():
+        raise HTTPException(400, "rule is required")
+    return {"id": lessons.add_lesson(body.rule, body.agent)}
+
+
+@app.put("/api/lessons/{lid}")
+def put_lesson(lid: str, body: LessonStatusIn):
+    try:
+        found = lessons.set_status(lid, body.status)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not found:
+        raise HTTPException(404, "lesson not found")
     return {"ok": True}
 
 
