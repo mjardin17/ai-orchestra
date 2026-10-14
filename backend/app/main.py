@@ -1,10 +1,10 @@
 import json, os, tempfile
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from . import arena, brain, facility, free_models, image_client, lessons, models, store, video_client, video_understanding
+from . import arena, brain, facility, facility_auth, free_models, image_client, lessons, models, store, video_client, video_understanding
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -93,12 +93,26 @@ async def run(body: RunIn):
 
 
 @app.post("/api/tasks/run")
-async def run_facility_task(body: dict):
-    """Facility task loop: isolated workspace, agent, verification by command, evidence receipt."""
+async def run_facility_task(request: Request):
+    """Facility task loop. Fails closed: needs FACILITY_API_TOKEN, and write tasks also need a signed, task-bound write grant."""
     try:
-        return await facility.run_task(body)
+        facility_auth.check_api_token(request.headers.get("authorization"))
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "body must be JSON")
+        task = facility.validate_task(dict(body) if isinstance(body, dict) else body)
+        if task["permissions"] == "write":
+            facility_auth.check_write_grant(task, request.headers.get("x-facility-write-grant"))
+        return await facility.run_guarded(task)
+    except facility_auth.AuthError as e:
+        raise HTTPException(e.status, e.message)
     except facility.TaskError as e:
         raise HTTPException(400, str(e))
+    except facility.Busy as e:
+        raise HTTPException(429, str(e))
+    except facility.ExecutionDisabled as e:
+        raise HTTPException(503, str(e))
 
 
 @app.get("/api/workspaces")

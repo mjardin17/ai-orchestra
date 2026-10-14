@@ -1,0 +1,10 @@
+{
+  "buggy_calc": {
+    "calc.py": "e50d3aba12703c352f8c32a77fbca0229e1ddf20d4aeb8150b1cbe7c9fdbdb8b",
+    "check_calc.py": "d8e3347d36c18b68a3dacdc65c98257738ff6d99c29883df6cff13e79d95cd3e"
+  },
+  "readonly_probe": {
+    "check_noop.py": "1508060031462fb5908d28f08954720639169f1f251c9ee15ccf6c8fd005775f",
+    "notes.txt": "e4d71fbc9d52c5c26e31ada7a1183cb79950f4c40104f98d55afd0e02611a4bd"
+  }
+}
