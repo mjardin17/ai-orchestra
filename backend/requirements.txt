@@ -3,3 +3,6 @@ uvicorn
 pydantic
 # only needed if ORCHESTRA_PROVIDER=api
 anthropic
+# facility verifier runs pytest at runtime; httpx is only for the test suite (TestClient)
+pytest
+httpx
