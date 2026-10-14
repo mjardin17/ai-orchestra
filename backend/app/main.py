@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import arena, bench, brain, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, video_client
+from . import arena, bench, brain, facility, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, video_client
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -91,6 +91,15 @@ async def run(body: RunIn):
         async for ev in orchestrate(body.prompt, body.workspace_id):
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/api/tasks/run")
+async def run_facility_task(body: dict):
+    """Facility task loop: isolated workspace, agent, verification by command, evidence receipt."""
+    try:
+        return await facility.run_task(body)
+    except facility.TaskError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/workspaces")
