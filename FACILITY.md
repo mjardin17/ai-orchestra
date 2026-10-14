@@ -10,6 +10,7 @@ Nothing runs until you configure it. Missing or too-short (<16 chars) secrets di
 |---|---|---|
 | `FACILITY_API_TOKEN` | Bearer token required on every call (`Authorization: Bearer ...`) | unset = endpoint returns 503 |
 | `FACILITY_GRANT_SECRET` | Signs write grants (`X-Facility-Write-Grant: <exp>.<nonce>.<hmac>`), bound to one task's exact content (id, title, fixture, permissions, allowed_paths, prompt, verify, timeouts, model), single use, valid at most 10 minutes | unset = write tasks refused (403) |
+| `FACILITY_EVIDENCE_SECRET` | Signs each receipt's verification claims (`attestation`: HMAC-SHA256 over `v1|run_id|task_id|status|report_ok|verification_trust`), shared with empire-command-center's `ORCHESTRA_EVIDENCE_SECRET` | unset = receipts carry `attestation: null` and the approval gate refuses them (fail closed) |
 | `FACILITY_ENABLE_PROVIDER_EXEC` | `1` allows the real Claude CLI to run | off = 503 |
 | `FACILITY_ENABLE_WRITE_EXEC` | `1` additionally allows write tasks with the real CLI. Read the limitations below first | off |
 | `FACILITY_MAX_CONCURRENT` / `FACILITY_MAX_PER_HOUR` | Admission limits protecting the subscription | `1` / `20` (429 when exceeded) |
@@ -33,6 +34,7 @@ Python 3.11+, packages in `backend/requirements.txt` (fastapi, uvicorn, pydantic
 - **Fails closed if the OS lock cannot be applied** (the agent is not started).
 - Endpoint auth, write grants, concurrency and hourly caps, one overall deadline (`timeout_s` covers agent + verification), process-tree kill on timeout, cleanup of only facility-owned directories, collision-safe receipts, redaction of secret-looking environment values from receipts, and the actual resolved model recorded in `resolved_model`.
 - Approval is separate from execution and verification: only a `verified` receipt can ever be offered for approval (also enforced by the mission board server for orders created with `requires_verification`).
+- Receipts carry `attestation`, an HMAC over the verification claims (`backend/app/facility_attestation.py`). The mission board accepts evidence only when the attestation is valid, the status is `verified`, `report_ok` is true, and `verification_trust` is `pristine_code_only`. A same-user write receipt is attested with its real trust level and is refused. The attestation proves where the claims came from. It does not make a write-task result trustworthy.
 
 ## What is NOT enforced (unsupported on this Windows host — do not rely on it)
 - **Network access** by the agent CLI or by agent-written code run by the verifier is not blocked.

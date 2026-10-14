@@ -16,7 +16,7 @@ runs as your Windows user (the agent CLI, or agent-written code under the verifi
 import asyncio, json, os, re, secrets, shutil, sys, tempfile, time, uuid
 from collections import deque
 from pathlib import Path
-from . import claude_client, facility_sandbox as sb, lessons
+from . import claude_client, facility_attestation, facility_sandbox as sb, lessons
 
 FIXTURE_ROOT = Path(os.getenv("FACILITY_FIXTURE_ROOT") or Path(__file__).resolve().parents[1] / "fixtures" / "facility")
 PERMISSIONS = ("read_only", "write")
@@ -331,6 +331,7 @@ async def run_task(task: dict, runner=None) -> dict:
     if receipt["status"] != "verified":
         lid = lessons.record_failure("facility", model, f"{receipt['status']}: {receipt['error']}")
         receipt["candidate_lessons"].append({"id": lid, "status": "pending", "verified": 0})
+    receipt["attestation"] = facility_attestation.attestation_for(receipt)   # signed claims for the approval gate; None if unconfigured
     receipt["finished"] = time.time()
     receipt["receipt_path"] = _write_receipt(receipt)
     return receipt
