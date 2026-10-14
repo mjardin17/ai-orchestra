@@ -1,10 +1,10 @@
 import json, os, tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from . import arena, brain, facility, facility_auth, free_models, image_client, lessons, models, store, video_client, video_understanding
+from . import arena, brain, decision_clef, facility, facility_auth, free_models, image_client, lessons, models, store, video_client, video_understanding
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -381,6 +381,36 @@ def put_lesson(lid: str, body: LessonStatusIn):
     if not found:
         raise HTTPException(404, "lesson not found")
     return {"ok": True}
+
+
+class DecisionIn(BaseModel):
+    model: str = "clef"
+    state: Any
+    questions: dict
+    confirm: bool = False
+
+
+@app.post("/api/decision/clef")
+def decision_clef_route(body: DecisionIn):
+    """Human-invoked decision helper. Returns answers and reported usage only. Never executes a decision."""
+    if not body.confirm:
+        raise HTTPException(400, "Set confirm=true to make this request. It may be billed.")
+    try:
+        req_body = decision_clef.build_request(body.model, body.state, body.questions)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    try:
+        response = decision_clef.call_systemone(req_body)
+    except decision_clef.DecisionUnavailable as e:
+        raise HTTPException(503, str(e))
+    except decision_clef.DecisionError as e:
+        raise HTTPException(502, str(e))
+    try:
+        parsed = decision_clef.parse_response(response, req_body["questions"].keys())
+    except decision_clef.DecisionError as e:
+        raise HTTPException(502, str(e))
+    return {**parsed, "model": req_body["model"], "report": decision_clef.format_report(parsed),
+            "disclaimer": decision_clef.DISCLAIMER}
 
 
 @app.get("/")

@@ -1,10 +1,11 @@
-"""Offline tests for the Clef decision helper. urlopen is blocked for every test unless a test mocks it."""
+"""Offline tests for the Clef decision helper and its route. urlopen is blocked for every test that doesn't mock it."""
 import io
 import json
 import urllib.error
 import urllib.request
 
 import pytest
+from fastapi.testclient import TestClient
 
 from app import decision_clef as dc
 
@@ -26,44 +27,44 @@ class FakeResponse(io.BytesIO):
 
 def sample_questions():
     return {
-        "pick_fix": dc.build_question("choice", "Choose the best fix.", criteria={
-            "patch_calc": "Edits calc.py only.", "rewrite_module": "Replaces the whole module."}),
-        "is_safe": dc.build_question("noul", "Judge the change.", proposition="The change is safe.",
-                                     true="Safe to merge after review.", false="Not safe."),
-        "rate_quality": dc.build_question("score", "Rate the test coverage.", levels=["none", "partial", "full"]),
+        "pick_fix": {"type": "choice", "instructions": "Choose the best fix.",
+                     "criteria": {"patch_calc": "Edits calc.py only.", "rewrite_module": "Replaces the module."}},
+        "is_safe": {"type": "noul", "instructions": "Judge: the change is safe.",
+                    "criteria": {"true": "Safe to merge after review.", "false": "Not safe."}},
+        "rate_quality": {"type": "score", "instructions": "Rate the test coverage.",
+                         "criteria": ["none", "partial", "full"]},
     }
 
 
-# ---- request shape and transport ------------------------------------------------------------------
+# ---- request schema and transport --------------------------------------------------------------
 
-def test_request_goes_to_systemone_with_bearer_key_and_exact_model(monkeypatch):
+def test_request_is_one_bearer_post_to_systemone_with_exact_model(monkeypatch):
     monkeypatch.setenv(dc.KEY_VAR, "test-key-not-real-0123456789")
     seen = {}
 
     def fake(req, timeout):
-        seen["url"], seen["method"], seen["timeout"] = req.full_url, req.get_method(), timeout
-        seen["auth"], seen["body"] = req.get_header("Authorization"), json.loads(req.data)
-        return FakeResponse(b'{"ok": true}')
+        seen.update(url=req.full_url, method=req.get_method(), timeout=timeout,
+                    auth=req.get_header("Authorization"), body=json.loads(req.data))
+        return FakeResponse(b'{"answers": {}, "usage": null}')
 
     monkeypatch.setattr(urllib.request, "urlopen", fake)
-    body = dc.build_request("clef", "diff: 2 files", sample_questions())
-    assert dc.call_systemone(body) == {"ok": True}
+    dc.call_systemone(dc.build_request("clef", "diff: 2 files", sample_questions()))
     assert seen["url"] == "https://api.experientiallabs.ai/v1/systemone"
     assert seen["method"] == "POST"
-    assert seen["timeout"] == dc.TIMEOUT_SECONDS and 0 < seen["timeout"] <= 60
+    assert 0 < seen["timeout"] <= 60
     assert seen["auth"] == "Bearer test-key-not-real-0123456789"
-    assert seen["body"]["model"] == "clef"
     assert set(seen["body"]) == {"model", "state", "questions"}
+    assert seen["body"]["model"] == "clef"
 
 
-def test_payload_shape_for_each_question_type():
-    body = dc.build_request("clef:free", {"diff": "x"}, sample_questions())
-    assert body["model"] == "clef:free"                       # preserved exactly
-    q = body["questions"]
-    assert q["pick_fix"]["type"] == "choice" and q["pick_fix"]["instructions"] == "Choose the best fix."
-    assert set(q["pick_fix"][dc.CHOICE_CRITERIA]) == {"patch_calc", "rewrite_module"}
-    assert q["is_safe"]["type"] == "noul" and q["is_safe"][dc.NOUL_PROPOSITION] == "The change is safe."
-    assert q["rate_quality"][dc.SCORE_LEVELS] == ["none", "partial", "full"]
+def test_clef_free_is_preserved_when_selected():
+    assert dc.build_request("clef:free", "s", sample_questions())["model"] == "clef:free"
+
+
+def test_model_spelling_is_exact():
+    for bad in ("Clef", "clef-free", "clef:free ", "cloudflare/clef", "gpt-6-luna-decisions"):
+        with pytest.raises(ValueError):
+            dc.build_request(bad, "s", sample_questions())
 
 
 def test_state_may_be_text_object_or_array():
@@ -73,14 +74,70 @@ def test_state_may_be_text_object_or_array():
         dc.build_request("clef", 42, sample_questions())
 
 
-def test_model_spelling_is_exact():
-    assert dc.build_request("clef", "s", sample_questions())["model"] == "clef"
-    for bad in ("Clef", "clef-free", "clef:free ", "cloudflare/clef", "gpt-6-luna-decisions"):
-        with pytest.raises(ValueError):
-            dc.build_request(bad, "s", sample_questions())
+def test_payload_shape_per_question_type():
+    q = dc.build_request("clef", "s", sample_questions())["questions"]
+    assert q["pick_fix"] == sample_questions()["pick_fix"]
+    assert q["is_safe"]["criteria"] == {"true": "Safe to merge after review.", "false": "Not safe."}
+    assert q["rate_quality"]["criteria"] == ["none", "partial", "full"]
 
 
-# ---- missing key: no network ----------------------------------------------------------------------
+@pytest.mark.parametrize("bad, reason", [
+    ({"type": "essay", "instructions": "x"}, "question type"),
+    ({"type": "score", "instructions": "   ", "criteria": ["a", "b"]}, "instructions"),
+    ({"type": "choice", "instructions": "x"}, "criteria"),
+    ({"type": "choice", "instructions": "x", "criteria": {"a": ""}}, "description"),
+    ({"type": "noul", "instructions": "x", "criteria": {"maybe": "d"}}, "true"),
+    ({"type": "noul", "instructions": "x", "criteria": {}}, "true"),
+    ({"type": "score", "instructions": "x", "criteria": ["only"]}, "2-10"),
+    ({"type": "score", "instructions": "x", "criteria": "not a list"}, "2-10"),
+])
+def test_invalid_question_shapes_are_refused(bad, reason):
+    with pytest.raises(ValueError, match=reason):
+        dc.build_request("clef", "s", {"q": bad})
+
+
+def test_noul_criteria_is_optional():
+    dc.build_request("clef", "s", {"q": {"type": "noul", "instructions": "x"}})
+
+
+# ---- admission bounds -------------------------------------------------------------------------
+
+def test_at_most_32_questions():
+    many = {f"q{i}": {"type": "score", "instructions": "r", "criteria": ["a", "b"]} for i in range(32)}
+    assert len(dc.build_request("clef", "s", many)["questions"]) == 32
+    many["q32"] = {"type": "score", "instructions": "r", "criteria": ["a", "b"]}
+    with pytest.raises(ValueError, match="at most 32"):
+        dc.build_request("clef", "s", many)
+
+
+def test_at_most_64_options_per_choice():
+    ok = {"q": {"type": "choice", "instructions": "x", "criteria": {f"o{i}": "d" for i in range(64)}}}
+    dc.build_request("clef", "s", ok)
+    bad = {"q": {"type": "choice", "instructions": "x", "criteria": {f"o{i}": "d" for i in range(65)}}}
+    with pytest.raises(ValueError, match="1-64"):
+        dc.build_request("clef", "s", bad)
+
+
+def test_score_levels_between_2_and_10():
+    dc.build_request("clef", "s", {"q": {"type": "score", "instructions": "x", "criteria": [str(i) for i in range(10)]}})
+    with pytest.raises(ValueError, match="2-10"):
+        dc.build_request("clef", "s", {"q": {"type": "score", "instructions": "x", "criteria": [str(i) for i in range(11)]}})
+
+
+def test_local_size_precheck_refuses_oversized_requests():
+    # 30 questions (under the 32 cap) of ~7,000 characters: the conservative estimate exceeds the ceiling.
+    huge = {f"q{i}": {"type": "choice", "instructions": "x" * 7000, "criteria": {"a": "y"}} for i in range(30)}
+    with pytest.raises(ValueError, match="pre-check"):
+        dc.build_request("clef", "s", huge)
+
+
+def test_state_summary_is_bounded_and_has_both_sections():
+    text = dc.summarize_state("3 files changed", "42 passed")
+    assert "DIFF SUMMARY" in text and "TEST SUMMARY" in text and "42 passed" in text
+    assert len(dc.summarize_state("x" * 5000, "y", max_chars=300)) <= 300
+
+
+# ---- missing key: no request ------------------------------------------------------------------
 
 @pytest.mark.parametrize("value", [None, "", "   "])
 def test_missing_key_stops_before_any_request(monkeypatch, value):
@@ -88,14 +145,13 @@ def test_missing_key_stops_before_any_request(monkeypatch, value):
         monkeypatch.delenv(dc.KEY_VAR, raising=False)
     else:
         monkeypatch.setenv(dc.KEY_VAR, value)
-    body = dc.build_request("clef", "s", sample_questions())
     with pytest.raises(dc.DecisionUnavailable, match="EXPERIENTIAL_API_KEY is not set"):
-        dc.call_systemone(body)
+        dc.call_systemone(dc.build_request("clef", "s", sample_questions()))
 
 
-# ---- error handling -------------------------------------------------------------------------------
+# ---- errors: surfaced once, no retry, key redacted --------------------------------------------
 
-def test_http_error_is_surfaced_once_without_retry_and_key_is_redacted(monkeypatch):
+def test_http_error_is_surfaced_once_and_key_is_redacted(monkeypatch):
     key = "test-key-not-real-ABCDEFGHIJ"
     monkeypatch.setenv(dc.KEY_VAR, key)
     calls = []
@@ -109,10 +165,10 @@ def test_http_error_is_surfaced_once_without_retry_and_key_is_redacted(monkeypat
     with pytest.raises(dc.DecisionError, match="HTTP 502") as info:
         dc.call_systemone(dc.build_request("clef", "s", sample_questions()))
     assert key not in str(info.value) and "<redacted>" in str(info.value)
-    assert len(calls) == 1                                   # no automatic retries
+    assert len(calls) == 1
 
 
-def test_transport_error_is_surfaced_without_retry(monkeypatch):
+def test_transport_error_is_surfaced_once(monkeypatch):
     monkeypatch.setenv(dc.KEY_VAR, "test-key-not-real-0123456789")
     calls = []
 
@@ -133,58 +189,105 @@ def test_non_json_success_body_is_an_error(monkeypatch):
         dc.call_systemone(dc.build_request("clef", "s", sample_questions()))
 
 
-def test_response_parsing_is_not_implemented_until_docs_are_verified():
-    with pytest.raises(NotImplementedError):
-        dc.parse_response({})
+# ---- response parsing and usage display -------------------------------------------------------
+
+def test_parse_reads_answers_by_id_and_reports_missing_and_unexpected():
+    response = {"answers": {"pick_fix": {"choice": "patch_calc"}, "stray": "x"}, "usage": {"input_tokens": 120}}
+    parsed = dc.parse_response(response, ["pick_fix", "is_safe"])
+    assert parsed["answers"] == {"pick_fix": {"choice": "patch_calc"}}
+    assert parsed["missing"] == ["is_safe"]
+    assert parsed["unexpected"] == ["stray"]
+    assert parsed["usage"] == {"input_tokens": 120}
 
 
-# ---- admission bounds (shared 65,536-token ceiling, 32 questions, 64 options, 2-10 levels) --------
-
-def test_at_most_32_questions():
-    many = {f"q{i}": dc.build_question("score", "rate", levels=["a", "b"]) for i in range(32)}
-    assert len(dc.build_request("clef", "s", many)["questions"]) == 32
-    many["q32"] = dc.build_question("score", "rate", levels=["a", "b"])
-    with pytest.raises(ValueError, match="at most 32"):
-        dc.build_request("clef", "s", many)
+def test_answer_shapes_are_passed_through_not_interpreted():
+    value = {"any": ["shape", 1, None]}
+    assert dc.parse_response({"answers": {"q": value}}, ["q"])["answers"]["q"] == value
 
 
-def test_at_most_64_options_per_choice():
-    ok = {f"o{i}": "d" for i in range(64)}
-    assert dc.build_question("choice", "pick", criteria=ok)[dc.CHOICE_CRITERIA]
-    with pytest.raises(ValueError, match="1-64"):
-        dc.build_question("choice", "pick", criteria={f"o{i}": "d" for i in range(65)})
+def test_response_without_answers_object_is_an_error():
+    for bad in ({}, {"answers": ["list"]}, [], "text"):
+        with pytest.raises(dc.DecisionError):
+            dc.parse_response(bad, ["q"])
 
 
-def test_score_levels_between_2_and_10():
-    dc.build_question("score", "rate", levels=["a", "b"])
-    dc.build_question("score", "rate", levels=[str(i) for i in range(10)])
-    for bad in (["only"], [str(i) for i in range(11)]):
-        with pytest.raises(ValueError, match="2-10"):
-            dc.build_question("score", "rate", levels=bad)
+def test_report_shows_answers_usage_missing_and_disclaimer():
+    parsed = dc.parse_response({"answers": {"pick_fix": "patch_calc"}, "usage": {"total_tokens": 99}}, ["pick_fix", "is_safe"])
+    report = dc.format_report(parsed)
+    assert "pick_fix: \"patch_calc\"" in report
+    assert "NO ANSWER RETURNED FOR: is_safe" in report
+    assert 'USAGE (as reported): {"total_tokens": 99}' in report
+    assert dc.DISCLAIMER in report
 
 
-def test_shared_token_ceiling_is_enforced():
-    # 30 questions (under the 32 cap) of ~7,000 characters each: about 70k estimated tokens, over the ceiling.
-    huge = {f"q{i}": dc.build_question("choice", "x" * 7000, criteria={"a": "y"}) for i in range(30)}
-    with pytest.raises(ValueError, match="ceiling"):
-        dc.build_request("clef", "s", huge)
+def test_report_says_when_usage_is_not_reported():
+    report = dc.format_report(dc.parse_response({"answers": {}}, []))
+    assert "USAGE (as reported): not reported" in report
 
 
-def test_questions_are_independent_objects_with_no_cross_references():
-    body = dc.build_request("clef", "s", sample_questions())
-    flat = json.dumps(body["questions"])
-    for qid in body["questions"]:
-        assert flat.count(f'"{qid}"') == 1      # IDs appear only as their own keys, never inside another question
+# ---- human-invoked route ----------------------------------------------------------------------
+
+@pytest.fixture()
+def client():
+    from app.main import app
+    return TestClient(app)
 
 
-def test_question_type_and_instruction_validation():
-    with pytest.raises(ValueError):
-        dc.build_question("essay", "x")
-    with pytest.raises(ValueError):
-        dc.build_question("score", "   ", levels=["a", "b"])
+ROUTE_BODY = {"model": "clef", "state": "diff: 2 files", "questions": sample_questions()}
 
 
-def test_state_summary_is_bounded_and_has_both_sections():
-    text = dc.summarize_state("3 files changed", "42 passed")
-    assert "DIFF SUMMARY" in text and "TEST SUMMARY" in text and "42 passed" in text
-    assert len(dc.summarize_state("x" * 5000, "y", max_chars=300)) <= 300
+def test_route_refuses_without_explicit_confirm(client, monkeypatch):
+    monkeypatch.setattr(dc, "call_systemone", lambda body, timeout=0: (_ for _ in ()).throw(AssertionError("called")))
+    res = client.post("/api/decision/clef", json=ROUTE_BODY)
+    assert res.status_code == 400 and "confirm=true" in res.json()["detail"]
+
+
+def test_route_rejects_invalid_questions_before_any_request(client, monkeypatch):
+    monkeypatch.setattr(dc, "call_systemone", lambda body, timeout=0: (_ for _ in ()).throw(AssertionError("called")))
+    res = client.post("/api/decision/clef", json={**ROUTE_BODY, "confirm": True, "questions": {"q": {"type": "essay"}}})
+    assert res.status_code == 400
+
+
+def test_route_without_key_returns_503_and_makes_no_request(client, monkeypatch):
+    monkeypatch.delenv(dc.KEY_VAR, raising=False)
+    res = client.post("/api/decision/clef", json={**ROUTE_BODY, "confirm": True})
+    assert res.status_code == 503 and "EXPERIENTIAL_API_KEY is not set" in res.json()["detail"]
+
+
+def test_route_maps_http_errors_to_502(client, monkeypatch):
+    monkeypatch.setenv(dc.KEY_VAR, "test-key-not-real-0123456789")
+
+    def fake(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 500, "err", {}, io.BytesIO(b"upstream failure"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    res = client.post("/api/decision/clef", json={**ROUTE_BODY, "confirm": True})
+    assert res.status_code == 502 and "HTTP 500" in res.json()["detail"]
+
+
+def test_route_returns_answers_usage_and_report_with_clef_free(client, monkeypatch):
+    monkeypatch.setenv(dc.KEY_VAR, "test-key-not-real-0123456789")
+    seen = {}
+
+    def fake(req, timeout):
+        seen["model"] = json.loads(req.data)["model"]
+        return FakeResponse(json.dumps({
+            "answers": {"pick_fix": "patch_calc", "is_safe": "true", "rate_quality": "partial"},
+            "usage": {"input_tokens": 300, "output_tokens": 40}}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake)
+    res = client.post("/api/decision/clef", json={**ROUTE_BODY, "model": "clef:free", "confirm": True})
+    assert res.status_code == 200
+    body = res.json()
+    assert seen["model"] == "clef:free" and body["model"] == "clef:free"
+    assert body["answers"] == {"pick_fix": "patch_calc", "is_safe": "true", "rate_quality": "partial"}
+    assert body["usage"] == {"input_tokens": 300, "output_tokens": 40}
+    assert body["missing"] == [] and body["unexpected"] == []
+    assert "USAGE (as reported)" in body["report"] and body["disclaimer"] == dc.DISCLAIMER
+
+
+def test_route_returns_502_when_response_has_no_answers(client, monkeypatch):
+    monkeypatch.setenv(dc.KEY_VAR, "test-key-not-real-0123456789")
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout: FakeResponse(b'{"error": "x"}'))
+    res = client.post("/api/decision/clef", json={**ROUTE_BODY, "confirm": True})
+    assert res.status_code == 502 and "answers" in res.json()["detail"]

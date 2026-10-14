@@ -1,19 +1,20 @@
-"""Clef: an optional decision helper. Not a chat or coding model; never routed into agent conversations.
+"""Clef: an optional, human-invoked decision helper. Not a chat or coding model.
 
-Native HTTP + JSON only. One POST per call, no retries, no streaming, no SDK.
-The key is read only from EXPERIENTIAL_API_KEY and is never printed or logged.
+It reads a state and a set of independent questions and returns answers and usage. It never executes a decision,
+merges changes, or bypasses review. Callers show the answers to a person.
 
-VERIFIED IN THIS CODE (from the request spec, not from live documentation):
-  - endpoint:   POST https://api.experientiallabs.ai/v1/systemone
-  - model id:   "clef" or "clef:free", spelled exactly
-  - body keys:  model, state, questions (question IDs chosen by the caller)
-  - per question: type ("choice" | "noul" | "score") and instructions
-  - admission:  at most 32 questions, 64 options per choice, 2-10 levels per score
-  - shared context ceiling: 65,536 tokens (estimated here, not measured)
+Transport: one native HTTP POST per call, JSON in and out, a bounded timeout, no retries, no streaming, no SDK,
+no Idempotency-Key. The key is read only from EXPERIENTIAL_API_KEY and is never printed, logged, or returned.
 
-UNVERIFIED (docs unreachable from this sandbox; confirm before any live call):
-  - the per-type field names below (CHOICE_CRITERIA, NOUL_PROPOSITION, SCORE_LEVELS)
-  - the response shape. parse_response() is deliberately not implemented yet.
+Request schema (as specified for this project):
+  body = {"model": "clef" | "clef:free", "state": <text | object | array>, "questions": {<id>: question}}
+  question = {"type": "choice" | "noul" | "score", "instructions": str, "criteria": ...}
+    choice: criteria = {option: description}, 1-64 options
+    noul:   criteria optional, may hold "true" and/or "false" descriptions
+    score:  criteria = ordered list of 2-10 level descriptions
+
+Local checks are admission bounds only: 32 questions, 64 options, 2-10 levels, and a conservative size check
+(characters / 3) against the shared 65,536-token context ceiling. The size check is an estimate, not a token count.
 """
 import json
 import math
@@ -32,29 +33,18 @@ MAX_OPTIONS = 64
 MIN_LEVELS, MAX_LEVELS = 2, 10
 CONTEXT_TOKEN_CEILING = 65_536
 QUESTION_TYPES = ("choice", "noul", "score")
+NOUL_KEYS = ("true", "false")
 
-# UNVERIFIED field names for the type-specific parts of a question. Replace with the documented names.
-CHOICE_CRITERIA = "criteria"        # {option: description}
-NOUL_PROPOSITION = "proposition"    # the statement to judge
-NOUL_TRUE = "true"                  # what "true" means
-NOUL_FALSE = "false"                # what "false" means
-SCORE_LEVELS = "levels"             # ordered list, 2-10 descriptions
-
-DISCLAIMER = ("Probabilities and confidence values are model outputs, not guarantees. "
-              "Review every decision before acting on it. Nothing here is executed or merged automatically.")
+DISCLAIMER = ("Probabilities and confidence values are model outputs, not guarantees. Review every answer "
+              "before acting on it. Nothing here executes a decision or merges changes.")
 
 
 class DecisionError(RuntimeError):
-    """Raised for missing configuration, HTTP errors, and transport errors. Messages never contain the key."""
+    """HTTP, transport, or response-format failure. Messages never contain the key."""
 
 
 class DecisionUnavailable(DecisionError):
-    """The key is not set locally. No request was made."""
-
-
-def estimate_tokens(text: str) -> int:
-    # Conservative estimate: about 3 characters per token, which overcounts ordinary English and JSON.
-    return math.ceil(len(text) / 3)
+    """EXPERIENTIAL_API_KEY is not set. No request was made."""
 
 
 def validate_model(model: str) -> str:
@@ -63,55 +53,63 @@ def validate_model(model: str) -> str:
     return model
 
 
-def build_question(qtype: str, instructions: str, **fields) -> dict:
+def _text(value, what: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{what} must be a non-empty string")
+    return value
+
+
+def validate_question(q) -> dict:
+    if not isinstance(q, dict):
+        raise ValueError("each question must be an object")
+    qtype = q.get("type")
     if qtype not in QUESTION_TYPES:
-        raise ValueError(f"question type must be one of {QUESTION_TYPES}")
-    if not isinstance(instructions, str) or not instructions.strip():
-        raise ValueError("instructions must be a non-empty string")
-    q = {"type": qtype, "instructions": instructions}
+        raise ValueError(f"question type must be one of {QUESTION_TYPES} (got {qtype!r})")
+    _text(q.get("instructions"), "instructions")
+    criteria = q.get("criteria")
     if qtype == "choice":
-        criteria = fields.get("criteria")
         if not isinstance(criteria, dict) or not (1 <= len(criteria) <= MAX_OPTIONS):
-            raise ValueError(f"choice needs a criteria map of 1-{MAX_OPTIONS} options")
-        if not all(isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip() for k, v in criteria.items()):
-            raise ValueError("choice criteria must map non-empty option names to non-empty descriptions")
-        q[CHOICE_CRITERIA] = dict(criteria)
+            raise ValueError(f"choice criteria must be an option-to-description map with 1-{MAX_OPTIONS} options")
+        for option, description in criteria.items():
+            _text(option, "choice option name")
+            _text(description, f"description for option {option!r}")
     elif qtype == "noul":
-        prop, t, f = fields.get("proposition"), fields.get("true"), fields.get("false")
-        if not all(isinstance(x, str) and x.strip() for x in (prop, t, f)):
-            raise ValueError("noul needs non-empty proposition, true and false descriptions")
-        q[NOUL_PROPOSITION], q[NOUL_TRUE], q[NOUL_FALSE] = prop, t, f
+        if criteria is not None:
+            if not isinstance(criteria, dict) or not criteria or not set(criteria) <= set(NOUL_KEYS):
+                raise ValueError('noul criteria, if given, must map "true" and/or "false" to descriptions')
+            for key, description in criteria.items():
+                _text(description, f'noul description for "{key}"')
     else:  # score
-        levels = fields.get("levels")
-        if not isinstance(levels, list) or not (MIN_LEVELS <= len(levels) <= MAX_LEVELS):
-            raise ValueError(f"score needs an ordered list of {MIN_LEVELS}-{MAX_LEVELS} level descriptions")
-        if not all(isinstance(x, str) and x.strip() for x in levels):
-            raise ValueError("score levels must be non-empty strings")
-        q[SCORE_LEVELS] = list(levels)
+        if not isinstance(criteria, list) or not (MIN_LEVELS <= len(criteria) <= MAX_LEVELS):
+            raise ValueError(f"score criteria must be an ordered list of {MIN_LEVELS}-{MAX_LEVELS} level descriptions")
+        for level in criteria:
+            _text(level, "score level")
     return q
 
 
-def build_request(model: str, state, questions: dict) -> dict:
-    """Validate admission bounds and return the JSON body. questions maps caller IDs to build_question() results."""
+def build_request(model: str, state, questions) -> dict:
+    """Validate the request and return the JSON body. Raises ValueError with a readable reason."""
     validate_model(model)
     if not isinstance(questions, dict) or not questions:
-        raise ValueError("questions must be a non-empty mapping of question ID to question")
+        raise ValueError("questions must be a non-empty object keyed by question ID")
     if len(questions) > MAX_QUESTIONS:
         raise ValueError(f"at most {MAX_QUESTIONS} questions per request (got {len(questions)})")
-    if not all(isinstance(qid, str) and qid.strip() for qid in questions):
-        raise ValueError("question IDs must be non-empty strings")
+    for qid, q in questions.items():
+        _text(qid, "question ID")
+        validate_question(q)
     if not isinstance(state, (str, dict, list)):
         raise ValueError("state must be text, an object, or an array")
     body = {"model": model, "state": state, "questions": questions}
-    size = estimate_tokens(json.dumps(body))
-    if size > CONTEXT_TOKEN_CEILING:
-        raise ValueError(f"request is about {size} tokens, over the {CONTEXT_TOKEN_CEILING}-token ceiling")
+    upper = math.ceil(len(json.dumps(body)) / 3)  # conservative size estimate, not a token count
+    if upper > CONTEXT_TOKEN_CEILING:
+        raise ValueError(f"request is too large for the local pre-check: its size estimate ({upper}) exceeds "
+                         f"the shared {CONTEXT_TOKEN_CEILING}-token ceiling")
     return body
 
 
-def summarize_state(diff_stat: str, test_summary: str, max_chars: int = 2000) -> str:
-    """Concise state for a decision: a diff summary and a test summary. Never the whole repository."""
-    text = f"DIFF SUMMARY:\n{diff_stat.strip()}\n\nTEST SUMMARY:\n{test_summary.strip()}"
+def summarize_state(diff_summary: str, test_summary: str, max_chars: int = 2000) -> str:
+    """Concise state: a diff summary and a test summary. Never the whole repository."""
+    text = f"DIFF SUMMARY:\n{diff_summary.strip()}\n\nTEST SUMMARY:\n{test_summary.strip()}"
     return text if len(text) <= max_chars else text[: max_chars - 15] + "\n...[truncated]"
 
 
@@ -120,7 +118,7 @@ def _redact(text: str, key: str) -> str:
 
 
 def call_systemone(body: dict, timeout: float = TIMEOUT_SECONDS) -> dict:
-    """POST the validated body once. Returns the parsed JSON response. No retries, no streaming."""
+    """POST the body once and return the parsed JSON response. No retries, no streaming."""
     key = os.getenv(KEY_VAR, "").strip()
     if not key:
         raise DecisionUnavailable(f"{KEY_VAR} is not set. Set it locally in your environment, then retry.")
@@ -140,6 +138,33 @@ def call_systemone(body: dict, timeout: float = TIMEOUT_SECONDS) -> dict:
         raise DecisionError("SystemOne returned a body that is not JSON") from None
 
 
-def parse_response(response: dict) -> dict:
-    """NOT IMPLEMENTED: the response shape is unverified. Implement only after the documented shape is confirmed."""
-    raise NotImplementedError("Response parsing waits for the verified SystemOne response format.")
+def parse_response(response, question_ids) -> dict:
+    """Read answers by question ID and usage. Shape of each answer is passed through, not interpreted."""
+    if not isinstance(response, dict):
+        raise DecisionError("SystemOne response is not a JSON object")
+    answers = response.get("answers")
+    if not isinstance(answers, dict):
+        raise DecisionError('SystemOne response has no "answers" object')
+    ids = list(question_ids)
+    return {
+        "answers": {qid: answers[qid] for qid in ids if qid in answers},
+        "missing": [qid for qid in ids if qid not in answers],
+        "unexpected": [qid for qid in answers if qid not in ids],
+        "usage": response.get("usage"),
+    }
+
+
+def format_report(parsed: dict, max_answer_chars: int = 500) -> str:
+    """Human-readable answers and usage, with the disclaimer."""
+    lines = ["ANSWERS:"]
+    for qid, value in parsed["answers"].items():
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True)
+        lines.append(f"  {qid}: {text if len(text) <= max_answer_chars else text[:max_answer_chars] + '...'}")
+    if parsed["missing"]:
+        lines.append(f"NO ANSWER RETURNED FOR: {', '.join(parsed['missing'])}")
+    if parsed["unexpected"]:
+        lines.append(f"UNEXPECTED ANSWER IDS: {', '.join(parsed['unexpected'])}")
+    usage = parsed["usage"]
+    lines.append("USAGE (as reported): " + (json.dumps(usage, sort_keys=True) if usage is not None else "not reported"))
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)
