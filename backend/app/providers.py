@@ -78,6 +78,8 @@ PROVIDER_CAPS = {
     "deepseek": _caps(True, 1_000_000, True),
     "openai": _caps(True, 400_000, True),
     "xai": _caps(True, 256_000, True),
+    # The gateway supports Chat Completions, but context length is model/route-specific.
+    "experiential": _caps(True, None, True),
 }
 MODEL_CAPS: dict = {}   # per-model exceptions, keyed by catalog id, e.g. {"mistral:mistral-small-latest": {"max_context": 32_000}}
 

@@ -10,6 +10,7 @@ c = TestClient(app)
 GROQ = {"id": "groq:test-model", "label": "Test", "kind": "free", "provider": "groq", "model": "test-model", "power": 3}
 OPENAI = {"id": "openai:gpt-test", "label": "OA", "kind": "free", "provider": "openai", "model": "gpt-test", "power": 3}
 XAI = {"id": "xai:grok-test", "label": "X", "kind": "free", "provider": "xai", "model": "grok-test", "power": 3}
+EXPERIENTIAL = {"id": "experiential:org-model-a", "label": "EL A", "kind": "free", "provider": "experiential", "model": "org-model-a", "power": 3}
 
 
 def go(m, spec=None):
@@ -124,6 +125,66 @@ def test_output_limit_and_timeout_are_configurable(monkeypatch):
     assert got["body"]["max_tokens"] == free_models.DEFAULT_MAX_TOKENS == 2000      # original default preserved
     go(OPENAI, RunSpec("s", "p", max_tokens=5000))
     assert got["body"]["max_completion_tokens"] == 5000 and "max_tokens" not in got["body"]    # newer OpenAI models
+
+
+def test_experiential_call_uses_gateway_contract_and_preserves_model_slug(monkeypatch):
+    got = {}
+    monkeypatch.setattr(free_models, "_post", lambda url, key, body, timeout=None:
+                        got.update(url=url, key=key, body=body, timeout=timeout) or ok_reply(model="org-model-a"))
+    result = go(EXPERIENTIAL, RunSpec("per-task system", "task prompt", max_tokens=777))
+    assert result.ok and result.model_version == "org-model-a"
+    assert got["url"] == "https://api.experientiallabs.ai/v1/chat/completions"
+    assert got["key"] == "test-key"
+    assert got["body"]["model"] == "org-model-a"
+    assert got["body"]["messages"] == [
+        {"role": "system", "content": "per-task system"},
+        {"role": "user", "content": "task prompt"},
+    ]
+    assert got["body"]["max_tokens"] == 777
+
+
+def test_experiential_model_list_uses_authenticated_v1_models(monkeypatch):
+    got = {}
+    monkeypatch.setattr(free_models, "_get", lambda url, key, timeout=None:
+                        got.update(url=url, key=key) or {"data": [{"id": "org-model-a"}, {"id": "org-model-b"}]})
+    assert asyncio.run(free_models.list_models("experiential")) == ["org-model-a", "org-model-b"]
+    assert got == {"url": "https://api.experientiallabs.ai/v1/models", "key": "test-key"}
+
+
+def test_experiential_key_uses_only_the_documented_env_name(monkeypatch):
+    monkeypatch.undo()
+    monkeypatch.delenv("EXPLABS_API_KEY", raising=False)
+    monkeypatch.delenv("EXPERIENTIAL_API_KEY", raising=False)
+    store.set_provider_key("experiential", "stored-test-key")
+    try:
+        assert free_models.get_key("experiential") == "stored-test-key"
+        assert free_models.key_source("experiential") == "saved in app"
+        monkeypatch.setenv("EXPERIENTIAL_API_KEY", "ignored-legacy-name")
+        assert free_models.get_key("experiential") == "stored-test-key"
+        monkeypatch.setenv("EXPLABS_API_KEY", "documented-env-key")
+        assert free_models.get_key("experiential") == "documented-env-key"
+        assert free_models.key_source("experiential") == "EXPLABS_API_KEY"
+    finally:
+        store.set_provider_key("experiential", "")
+
+
+def test_experiential_custom_models_and_setup_are_registered(monkeypatch):
+    monkeypatch.setattr(free_models, "has_key", lambda provider: provider == "experiential")
+    model_id = c.post("/api/models/custom", json={"provider": "experiential", "model": "org-model-b", "label": "Model B"}).json()["id"]
+    try:
+        entry = next(m for m in models.catalog() if m["id"] == "experiential:org-model-b")
+        assert entry["provider"] == "experiential" and entry["available"]
+        assert "experiential" in c.get("/api/models").json()["providers"]
+        setup = next(p for p in c.get("/api/setup").json() if p["provider"] == "experiential")
+        assert setup["signup_url"] == "https://platform.experientiallabs.ai/docs"
+        assert setup["connected"]
+    finally:
+        store.delete_custom(model_id)
+
+
+def test_experiential_context_is_not_guessed():
+    assert providers.capabilities(EXPERIENTIAL)["max_context"] is None
+    assert providers.capabilities(EXPERIENTIAL)["known"] is False
 
 
 def test_original_call_one_still_works(monkeypatch):

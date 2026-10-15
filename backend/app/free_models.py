@@ -12,6 +12,7 @@ PROVIDERS = {  # name: (base url, key env var)
     "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
     "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
     "xai": ("https://api.x.ai/v1", "XAI_API_KEY"),
+    "experiential": ("https://api.experientiallabs.ai/v1", "EXPLABS_API_KEY"),
 }
 # Credentials that already exist on this machine under another name. They are READ in place, never copied or renamed,
 # and are used only after the primary variable and the app's saved key. Whether one is a valid credential for the
@@ -30,6 +31,7 @@ SIGNUP = {  # where to create an account and find the key, and roughly what it t
     "deepseek": ("https://platform.deepseek.com/api_keys", "Email sign-up. Bills per token after any trial credit."),
     "openai": ("https://platform.openai.com/api-keys", "OpenAI API. Paid, per token."),
     "xai": ("https://console.x.ai", "xAI API (Grok). Paid, per token."),
+    "experiential": ("https://platform.experientiallabs.ai/docs", "One gateway key for your organization; model pricing depends on the selected route."),
     "higgsfield": ("https://console.higgsfield.ai", "Video generation. Paid: register a card and top up a balance (some accounts get starter credit). Paste as KEY_ID:KEY_SECRET."),
 }
 COOLDOWN: dict = {}
