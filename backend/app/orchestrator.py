@@ -1,5 +1,5 @@
 import asyncio, json, os, re, uuid
-from . import brain, models, store
+from . import brain, lessons, models, store
 from .claude_client import run_agent
 from .prompts import CHECK, DIRECT, PROMPTS, REVISE, SUPERVISOR, SYNTH
 
@@ -61,6 +61,7 @@ async def passes(request: str, text: str, hard: bool) -> bool:
 async def solve(agent, key, route, pool, system, prompt, request, run_id, tools=False):
     """The council's loop: cheapest capable model first, escalate on failure or a failed quality check."""
     ladder, checkable = ladder_for(key, route, pool, tools)
+    system = lessons.with_lessons(system, key)  # rules learned from earlier failures
     hard = route.get("difficulty", {}).get(key) == "hard"
     tries, note, escalated, best, err = 0, "Working", False, None, None
     while ladder and tries < MAX_ATTEMPTS:
@@ -70,10 +71,12 @@ async def solve(agent, key, route, pool, system, prompt, request, run_id, tools=
         try:
             text = await models.run_strict(m, system, prompt, tools)
         except Exception as e:
+            lessons.record_failure(key, m["id"], e, request)
             err, note, escalated = e, "Retrying", True
             continue
         if checkable and ladder and tries < MAX_ATTEMPTS and not await passes(request, text, hard):
             best = best or text
+            lessons.record_failure(key, m["id"], "output judged insufficient by the quality check", request)
             ladder = [x for x in ladder if x["power"] > m["power"]]
             if ladder:
                 note, escalated = "Escalated", True
