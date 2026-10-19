@@ -4,7 +4,7 @@ It reads a state and a set of independent questions and returns answers and usag
 merges changes, or bypasses review. Callers show the answers to a person.
 
 Transport: one native HTTP POST per call, JSON in and out, a bounded timeout, no retries, no streaming, no SDK,
-no Idempotency-Key. The key is read only from EXPERIENTIAL_API_KEY and is never printed, logged, or returned.
+no Idempotency-Key. The key is read only from EXPLABS_API_KEY and is never printed, logged, or returned.
 
 Request schema (as specified for this project):
   body = {"model": "clef" | "clef:free", "state": <text | object | array>, "questions": {<id>: question}}
@@ -23,7 +23,7 @@ import urllib.error
 import urllib.request
 
 ENDPOINT = "https://api.experientiallabs.ai/v1/systemone"
-KEY_VAR = "EXPERIENTIAL_API_KEY"
+KEY_VAR = "EXPLABS_API_KEY"
 MODELS = ("clef", "clef:free")
 TIMEOUT_SECONDS = 30
 USER_AGENT = "ai-orchestra/1.0"
@@ -44,7 +44,7 @@ class DecisionError(RuntimeError):
 
 
 class DecisionUnavailable(DecisionError):
-    """EXPERIENTIAL_API_KEY is not set. No request was made."""
+    """EXPLABS_API_KEY is not set. No request was made."""
 
 
 def validate_model(model: str) -> str:

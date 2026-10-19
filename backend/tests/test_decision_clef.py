@@ -145,7 +145,7 @@ def test_missing_key_stops_before_any_request(monkeypatch, value):
         monkeypatch.delenv(dc.KEY_VAR, raising=False)
     else:
         monkeypatch.setenv(dc.KEY_VAR, value)
-    with pytest.raises(dc.DecisionUnavailable, match="EXPERIENTIAL_API_KEY is not set"):
+    with pytest.raises(dc.DecisionUnavailable, match="EXPLABS_API_KEY is not set"):
         dc.call_systemone(dc.build_request("clef", "s", sample_questions()))
 
 
@@ -251,7 +251,7 @@ def test_route_rejects_invalid_questions_before_any_request(client, monkeypatch)
 def test_route_without_key_returns_503_and_makes_no_request(client, monkeypatch):
     monkeypatch.delenv(dc.KEY_VAR, raising=False)
     res = client.post("/api/decision/clef", json={**ROUTE_BODY, "confirm": True})
-    assert res.status_code == 503 and "EXPERIENTIAL_API_KEY is not set" in res.json()["detail"]
+    assert res.status_code == 503 and "EXPLABS_API_KEY is not set" in res.json()["detail"]
 
 
 def test_route_maps_http_errors_to_502(client, monkeypatch):
