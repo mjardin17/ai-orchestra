@@ -1,0 +1,37 @@
+name: backend tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The facility lock tests block writes with file permissions, which root ignores.
+      # Fail fast if this job ever runs as root, rather than reporting misleading failures.
+      - name: Refuse to run as root
+        run: |
+          if [ "$(id -u)" -eq 0 ]; then
+            echo "Run the suite as a non-root user; permission-lock tests cannot pass as root." >&2
+            exit 1
+          fi
+
+      - name: Run tests
+        run: python -m pytest -q
