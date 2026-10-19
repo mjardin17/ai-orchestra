@@ -323,6 +323,7 @@ def test_pristine_fixture_containing_symlink_is_a_task_error(tmp_path, symlinks_
     target = tmp_path / "tgt.txt"; target.write_text("t")
     os.symlink(target, d / "link.txt")
     monkeypatch.setattr(facility, "FIXTURE_ROOT", fx)
+    monkeypatch.setenv("FACILITY_ENABLE_PROVIDER_EXEC", "1")   # the fixture check is what is under test, not the exec gate
     with pytest.raises(facility.TaskError, match="clean regular-file tree"):
         go(facility.run_task(task(fixture="bad", verify=["python", "-m", "pytest", "check_x.py"]), runner=None))
 
@@ -519,7 +520,9 @@ def test_kill_tree_kills_grandchildren(tmp_path):
               f"g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
               f"open(r'{pidfile}', 'w').write(str(g.pid))\n"
               "time.sleep(60)\n")
-    proc = subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Spawn the same way the facility does (own session on POSIX) so kill_tree's group kill is what is being tested.
+    proc = subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            **sb.SPAWN_KW)
     gpid = None
     try:
         deadline = time.time() + 15
