@@ -17,7 +17,7 @@ create table if not exists skills(id text primary key, name text, text text, cre
 create table if not exists provider_keys(provider text primary key, key text);
 create table if not exists video_analyses(id text primary key, workspace_id text, filename text,
     source_type text, source_ref text, transcript text, frame_notes text, result text, created real);
-insert or ignore into workspaces values('default','My workspace','');
+insert or ignore into workspaces(id, name, notes) values('default','My workspace','');
 """)
 try:
     DB.execute("alter table runs add column workspace_id text default 'default'")

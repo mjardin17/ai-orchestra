@@ -1,10 +1,10 @@
 import json, os, tempfile
 from pathlib import Path
-from typing import Optional
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from typing import Any, Optional
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
-from . import arena, brain, free_models, image_client, models, store, video_client, video_understanding
+from . import arena, brain, decision_clef, facility, facility_auth, free_models, image_client, lessons, models, store, video_client, video_understanding
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -90,6 +90,29 @@ async def run(body: RunIn):
         async for ev in orchestrate(body.prompt, body.workspace_id):
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/api/tasks/run")
+async def run_facility_task(request: Request):
+    """Facility task loop. Fails closed: needs FACILITY_API_TOKEN, and write tasks also need a signed, task-bound write grant."""
+    try:
+        facility_auth.check_api_token(request.headers.get("authorization"))
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "body must be JSON")
+        task = facility.validate_task(dict(body) if isinstance(body, dict) else body)
+        if task["permissions"] == "write":
+            facility_auth.check_write_grant(task, request.headers.get("x-facility-write-grant"))
+        return await facility.run_guarded(task)
+    except facility_auth.AuthError as e:
+        raise HTTPException(e.status, e.message)
+    except facility.TaskError as e:
+        raise HTTPException(400, str(e))
+    except facility.Busy as e:
+        raise HTTPException(429, str(e))
+    except facility.ExecutionDisabled as e:
+        raise HTTPException(503, str(e))
 
 
 @app.get("/api/workspaces")
@@ -326,6 +349,68 @@ def get_tally():
 def reset_tally():
     store.clear_tally()
     return {"ok": True}
+
+
+class LessonIn(BaseModel):
+    rule: str
+    agent: str = "*"
+
+
+class LessonStatusIn(BaseModel):
+    status: str
+
+
+@app.get("/api/lessons")
+def get_lessons(status: Optional[str] = None):
+    return lessons.list_lessons(status)
+
+
+@app.post("/api/lessons")
+def post_lesson(body: LessonIn):
+    if not body.rule.strip():
+        raise HTTPException(400, "rule is required")
+    return {"id": lessons.add_lesson(body.rule, body.agent)}
+
+
+@app.put("/api/lessons/{lid}")
+def put_lesson(lid: str, body: LessonStatusIn):
+    try:
+        found = lessons.set_status(lid, body.status)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not found:
+        raise HTTPException(404, "lesson not found")
+    return {"ok": True}
+
+
+class DecisionIn(BaseModel):
+    model: str = "clef"
+    state: Any
+    questions: dict
+    confirm: bool = False
+
+
+@app.post("/api/decision/clef")
+def decision_clef_route(body: DecisionIn):
+    """Human-invoked decision helper. Returns answers and reported usage only. Never executes a decision."""
+    if not body.confirm:
+        raise HTTPException(400, "Set confirm=true to make this request. It may be billed.")
+    try:
+        req_body = decision_clef.build_request(body.model, body.state, body.questions)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    try:
+        response = decision_clef.call_systemone(req_body)
+    except decision_clef.DecisionUnavailable as e:
+        raise HTTPException(503, str(e))
+    except decision_clef.DecisionError as e:
+        raise HTTPException(502, str(e))
+    try:
+        parsed = decision_clef.parse_response(response, req_body["questions"].keys())
+    except decision_clef.DecisionError as e:
+        raise HTTPException(502, str(e))
+    return {**parsed, "model": req_body["model"], "report": decision_clef.format_report(parsed),
+            "disclaimer": decision_clef.DISCLAIMER}
 
 
 @app.get("/")

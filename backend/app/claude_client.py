@@ -18,6 +18,11 @@ UNAVAILABLE: set = set()                          # tiers that failed with a mod
 MODEL_ERR = re.compile(r"model|not available|access|permission|not found|does not exist|not supported", re.I)
 
 
+def cli_path() -> str:
+    """The claude executable to run: CLAUDE_BIN if set (use it when the `claude` on PATH is a stale shim), else PATH."""
+    return os.getenv("CLAUDE_BIN") or shutil.which("claude") or "claude"
+
+
 def resolve(tier: str) -> str:
     """Clamp to MAX_TIER, then step down past tiers known to be unavailable."""
     i = min(TIERS.index(tier if tier in TIERS else "main"), TIERS.index(MAX_TIER))
@@ -39,7 +44,7 @@ async def _call(system: str, prompt: str, model: str, tools: bool = False) -> st
         return "".join(b.text for b in msg.content if b.type == "text")
 
     full = f"{system}\n\n---\nUser request:\n{prompt}"
-    args = [shutil.which("claude") or "claude", "-p", "--model", model] + (["--allowedTools", "WebSearch,WebFetch"] if tools else [])
+    args = [cli_path(), "-p", "--model", model] + (["--allowedTools", "WebSearch,WebFetch"] if tools else [])
     proc = await asyncio.create_subprocess_exec(
         *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
