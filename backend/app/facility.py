@@ -162,7 +162,7 @@ async def claude_runner(ws: Path, prompt: str, write: bool, model: str, timeout:
     ensure_exec_enabled(write)
     proc = await asyncio.create_subprocess_exec(*build_agent_argv(write, model), cwd=str(ws), env=sb.agent_env(),
                                                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.PIPE)
+                                                stderr=asyncio.subprocess.PIPE, start_new_session=True)
     try:
         out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout=timeout)
     except BaseException:  # timeout or cancel: kill the whole process tree
@@ -183,7 +183,8 @@ async def _verify(vdir: Path, report: Path, cmd: list, timeout: float) -> dict:
     argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-c", "pytest.ini", "--rootdir", ".",
             f"--junitxml={report}"] + [a for a in cmd[3:] if a != "-q"]
     proc = await asyncio.create_subprocess_exec(*argv, cwd=str(vdir), env=sb.verify_env(vdir), stdin=asyncio.subprocess.DEVNULL,
-                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+                                                start_new_session=True)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:

@@ -522,7 +522,9 @@ def test_kill_tree_kills_grandchildren(tmp_path):
               f"g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
               f"open(r'{pidfile}', 'w').write(str(g.pid))\n"
               "time.sleep(60)\n")
-    proc = subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Start it as a process-group leader, the way the facility starts its agent and verifier. kill_tree relies on that.
+    proc = subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
     gpid = None
     try:
         deadline = time.time() + 15

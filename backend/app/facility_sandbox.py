@@ -8,7 +8,7 @@ What this module really enforces (each point has a test):
 - Child processes get an allow-listed environment: no API keys, tokens or secrets.
 What it does NOT do: sandbox code. A verifier or agent subprocess still runs as the same OS user and can read user files and use
 the network. Strong isolation needs a separate low-privilege account or container."""
-import csv, functools, hashlib, io, os, re, shutil, site, stat, subprocess, sys, tempfile
+import csv, functools, hashlib, io, os, re, shutil, signal, site, stat, subprocess, sys, tempfile
 from pathlib import Path
 
 PROTECTED_NAME = re.compile(
@@ -249,10 +249,15 @@ def redact(text: str, extra=()) -> str:
 
 
 def kill_tree(proc) -> None:
-    """Kill the process and its children (plain kill() leaves children running on Windows)."""
+    """Kill the process and its children. Plain kill() leaves children running on both platforms.
+    On POSIX this needs the process started with start_new_session=True, so it leads its own process group."""
     if proc.returncode is not None:
         return
     if sys.platform == "win32":
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
     else:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)     # the whole group: the child and anything it spawned
+        except ProcessLookupError:
+            pass                                    # group already gone
         proc.kill()
