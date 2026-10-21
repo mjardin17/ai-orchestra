@@ -258,6 +258,9 @@ def kill_tree(proc) -> None:
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)     # the whole group: the child and anything it spawned
+        except OSError:
+            pass                                    # group already gone, or not ours to signal
+        try:
+            proc.kill()
         except ProcessLookupError:
-            pass                                    # group already gone
-        proc.kill()
+            pass                                    # the process exited between the checks above
