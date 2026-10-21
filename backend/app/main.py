@@ -11,6 +11,7 @@ from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
 PAGE = Path(__file__).resolve().parents[2] / "frontend" / "index.html"
+THREADS_PAGE = Path(__file__).resolve().parents[2] / "frontend" / "threads.html"
 MAPS = PAGE.parent / "maps"
 app.mount("/maps", StaticFiles(directory=MAPS, html=False), name="maps")  # read-only project maps shown in the Maps tab
 
@@ -147,6 +148,23 @@ async def set_thread_participant(thread_id: str, request: Request):
         raise HTTPException(e.status, e.message)
     except threads.ThreadError as e:
         raise HTTPException(400, str(e))
+
+
+@app.get("/api/threads/{thread_id}")
+async def get_thread(thread_id: str, request: Request):
+    """Transcript and active participants for one thread. Same token gate."""
+    try:
+        facility_auth.check_api_token(request.headers.get("authorization"))
+        return {"id": thread_id, "messages": threads.transcript(thread_id), "active": threads.active_participants(thread_id)}
+    except facility_auth.AuthError as e:
+        raise HTTPException(e.status, e.message)
+    except threads.ThreadError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/threads")
+def threads_page():
+    return FileResponse(THREADS_PAGE)
 
 
 @app.post("/api/threads/{thread_id}/turn")

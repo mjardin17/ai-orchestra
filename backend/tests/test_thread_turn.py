@@ -87,3 +87,21 @@ def test_http_routes_require_the_token(db, monkeypatch):
     assert r.json() == {"active": ["claude"]}
     assert client.post(f"/api/threads/{tid}/turn", json={"content": 5}, headers=h).status_code == 400
     assert client.post("/api/threads/nope/turn", json={"content": "hi"}, headers=h).status_code == 400
+
+
+def test_get_thread_needs_the_token_and_returns_the_transcript(db, monkeypatch):
+    monkeypatch.setenv("FACILITY_API_TOKEN", TOKEN)
+    client = TestClient(app)
+    h = {"Authorization": f"Bearer {TOKEN}"}
+    tid = client.post("/api/threads", json={"name": "x"}, headers=h).json()["id"]
+    threads.add_message(tid, "user", "hello")
+    assert client.get(f"/api/threads/{tid}").status_code == 401
+    body = client.get(f"/api/threads/{tid}", headers=h).json()
+    assert body["messages"][0]["content"] == "hello" and body["active"] == []
+
+
+def test_threads_page_is_served_and_renders_text_not_html():
+    client = TestClient(app)
+    res = client.get("/threads")
+    assert res.status_code == 200 and "Facility threads" in res.text
+    assert "innerHTML" not in res.text  # model output is rendered as text only

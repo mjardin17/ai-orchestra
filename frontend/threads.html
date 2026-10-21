@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facility threads</title>
+<style>
+:root{--bg:#fafaf8;--fg:#1d1d1b;--muted:#6b6b66;--line:#dcdcd6;--card:#ffffff;--accent:#2f5d8a;--err:#a33a2b}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#161615;--fg:#ecebe6;--muted:#9a9a93;--line:#34342f;--card:#1f1f1d;--accent:#7fb0e0;--err:#e0857a}}
+:root[data-theme="dark"]{--bg:#161615;--fg:#ecebe6;--muted:#9a9a93;--line:#34342f;--card:#1f1f1d;--accent:#7fb0e0;--err:#e0857a}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:8px 0 16px}
+fieldset{border:1px solid var(--line);border-radius:8px;margin:0 0 12px;padding:10px 12px;background:var(--card)}
+legend{color:var(--muted);padding:0 4px}
+input[type=text],input[type=password],textarea{width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+textarea{min-height:72px}
+button{padding:8px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.msg{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;white-space:pre-wrap;word-break:break-word}
+.who{font-size:12px;color:var(--muted);margin-bottom:4px}
+.err{color:var(--err)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Facility threads</h1>
+
+  <fieldset>
+    <legend>Connection</legend>
+    <input type="password" id="token" placeholder="Facility API token (kept in memory only)" autocomplete="off">
+  </fieldset>
+
+  <fieldset>
+    <legend>Thread</legend>
+    <div class="row">
+      <input type="text" id="tname" placeholder="New thread name" style="flex:1">
+      <button id="create">Create</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="tid" placeholder="Thread id" style="flex:1">
+      <button id="load">Load</button>
+    </div>
+    <p class="err" id="err" role="alert"></p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Models in this thread</legend>
+    <label><input type="checkbox" id="p-claude" data-p="claude"> Claude</label>
+    <label style="margin-left:14px"><input type="checkbox" id="p-chatgpt" data-p="chatgpt"> ChatGPT (via Codex)</label>
+    <p class="who" style="margin:6px 0 0">Changes apply from the next message. Earlier messages stay visible to everyone.</p>
+  </fieldset>
+
+  <fieldset>
+    <legend>Transcript</legend>
+    <div id="log" aria-live="polite"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Message</legend>
+    <textarea id="msg" placeholder="Send to every active model"></textarea>
+    <div class="row" style="margin-top:8px"><button id="send" disabled>Send</button><span class="who" id="status"></span></div>
+  </fieldset>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let threadId = null;
+
+function headers() {
+  return {"Content-Type": "application/json", "Authorization": "Bearer " + $("token").value.trim()};
+}
+function showError(msg) { $("err").textContent = msg || ""; }
+
+async function call(url, opts) {
+  const res = await fetch(url, opts);
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.detail || ("request failed: " + res.status));
+  return body;
+}
+
+function addBubble(who, text, isError) {
+  const box = document.createElement("div");
+  box.className = "msg" + (isError ? " err" : "");
+  const label = document.createElement("div");
+  label.className = "who";
+  label.textContent = who;
+  box.append(label, document.createTextNode(text));   // text only: model output is never parsed as HTML
+  $("log").append(box);
+  box.scrollIntoView({block: "end"});
+}
+
+function nameOf(participant) { return participant === "claude" ? "Claude" : "ChatGPT"; }
+
+function renderTranscript(messages) {
+  $("log").textContent = "";
+  for (const m of messages) {
+    if (m.role === "user") addBubble("You", m.content);
+    else addBubble(nameOf(m.participant), m.content);
+  }
+}
+
+function setReady(on) {
+  $("send").disabled = !on;
+  for (const cb of document.querySelectorAll("[data-p]")) cb.disabled = !on;
+}
+
+function refreshParticipants(active) {
+  for (const cb of document.querySelectorAll("[data-p]")) cb.checked = active.includes(cb.dataset.p);
+}
+
+$("create").onclick = async () => {
+  showError("");
+  try {
+    const r = await call("/api/threads", {method: "POST", headers: headers(), body: JSON.stringify({name: $("tname").value})});
+    threadId = r.id;
+    $("tid").value = r.id;
+    $("log").textContent = "";
+    refreshParticipants([]);
+    setReady(true);
+  } catch (e) { showError(e.message); }
+};
+
+$("load").onclick = async () => {
+  showError("");
+  try {
+    const r = await call("/api/threads/" + encodeURIComponent($("tid").value.trim()), {headers: headers()});
+    threadId = r.id;
+    renderTranscript(r.messages);
+    refreshParticipants(r.active);
+    setReady(true);
+  } catch (e) { showError(e.message); }
+};
+
+for (const cb of document.querySelectorAll("[data-p]")) {
+  cb.onchange = async () => {
+    showError("");
+    try {
+      const r = await call("/api/threads/" + encodeURIComponent(threadId) + "/participants",
+        {method: "POST", headers: headers(), body: JSON.stringify({participant: cb.dataset.p, active: cb.checked})});
+      refreshParticipants(r.active);
+    } catch (e) { cb.checked = !cb.checked; showError(e.message); }
+  };
+}
+
+$("send").onclick = async () => {
+  showError("");
+  const text = $("msg").value.trim();
+  if (!text || !threadId) return;
+  $("send").disabled = true;
+  $("status").textContent = "Waiting for models...";
+  try {
+    const r = await call("/api/threads/" + encodeURIComponent(threadId) + "/turn",
+      {method: "POST", headers: headers(), body: JSON.stringify({content: text})});
+    addBubble("You", text);
+    $("msg").value = "";
+    for (const res of r.results) {
+      if (res.ok) addBubble(nameOf(res.participant), res.text);
+      else addBubble(nameOf(res.participant) + " (failed)", res.error, true);
+    }
+  } catch (e) { showError(e.message); }
+  finally { $("send").disabled = false; $("status").textContent = ""; }
+};
+</script>
+</body>
+</html>
