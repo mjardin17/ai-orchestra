@@ -29,7 +29,7 @@ def test_late_joiner_sees_the_whole_transcript(db):
     threads.add_message(tid, "user", "follow-up")
     prompt = threads.prompt_for(tid, "chatgpt")
     assert "first question" in prompt and "claude's answer" in prompt and "follow-up" in prompt
-    assert prompt.endswith("Answer as Assistant (chatgpt).")
+    assert prompt.endswith("Answer the latest User message as Assistant (chatgpt).")
 
 
 def test_leaving_stops_answers_but_keeps_history(db):
@@ -59,9 +59,10 @@ def test_validation(db):
         threads.create_thread("  ")
 
 
-def test_prompt_needs_a_user_turn_last(db):
+def test_prompt_needs_a_user_message_to_answer(db):
     tid = threads.create_thread("plan")
+    with pytest.raises(threads.ThreadError, match="has none yet"):
+        threads.prompt_for(tid, "chatgpt")
     threads.add_message(tid, "user", "q")
     threads.add_message(tid, "assistant", "a", "claude")
-    with pytest.raises(threads.ThreadError, match="after a user message"):
-        threads.prompt_for(tid, "chatgpt")
+    assert "Answer the latest User message as Assistant (chatgpt)." in threads.prompt_for(tid, "chatgpt")

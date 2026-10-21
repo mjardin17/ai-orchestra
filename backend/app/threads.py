@@ -92,12 +92,14 @@ def transcript(thread_id: str) -> list:
 
 
 def prompt_for(thread_id: str, participant: str) -> str:
-    """The full transcript as one prompt for `participant`, ending with the turn it should answer. Nothing is cut off."""
+    """The full transcript as one prompt for `participant`. Nothing is cut off. Earlier answers from the same turn are included,
+    so the prompt is built per participant, after the previous one has been saved."""
     msgs = transcript(thread_id)
-    if not msgs or msgs[-1]["role"] != "user":
-        raise ThreadError("a participant answers after a user message")
+    last_user = max((m["seq"] for m in msgs if m["role"] == "user"), default=None)
+    if last_user is None:
+        raise ThreadError("a participant answers a user message, and the thread has none yet")
     lines = []
     for m in msgs:
         speaker = "User" if m["role"] == "user" else f"Assistant ({m['participant']})"
         lines.append(f"{speaker}: {m['content']}")
-    return "\n\n".join(lines) + f"\n\nAnswer as Assistant ({participant})."
+    return "\n\n".join(lines) + f"\n\nAnswer the latest User message as Assistant ({participant})."

@@ -5,7 +5,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import arena, bench, brain, facility, facility_auth, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, video_client
+from . import arena, bench, brain, facility, facility_auth, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, threads, video_client
+from .thread_turn import run_turn as thread_turn_run
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -112,6 +113,55 @@ async def run_facility_task(request: Request):
         raise HTTPException(400, str(e))
     except facility.Busy as e:
         raise HTTPException(429, str(e))
+    except facility.ExecutionDisabled as e:
+        raise HTTPException(503, str(e))
+
+
+@app.post("/api/threads")
+async def create_thread(request: Request):
+    """Start a shared thread. Body: {"name": string}. Same token gate as the Facility task endpoint."""
+    try:
+        facility_auth.check_api_token(request.headers.get("authorization"))
+        body = await request.json()
+        name = body.get("name") if isinstance(body, dict) else None
+        if not isinstance(name, str):
+            raise HTTPException(400, 'body must be {"name": string}')
+        return {"id": threads.create_thread(name)}
+    except facility_auth.AuthError as e:
+        raise HTTPException(e.status, e.message)
+    except threads.ThreadError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/threads/{thread_id}/participants")
+async def set_thread_participant(thread_id: str, request: Request):
+    """Add a model to a thread or take it out of the next turn. Body: {"participant": "claude"|"chatgpt", "active": bool}."""
+    try:
+        facility_auth.check_api_token(request.headers.get("authorization"))
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("active"), bool):
+            raise HTTPException(400, 'body must be {"participant": string, "active": boolean}')
+        threads.set_participant(thread_id, body.get("participant"), body["active"])
+        return {"active": threads.active_participants(thread_id)}
+    except facility_auth.AuthError as e:
+        raise HTTPException(e.status, e.message)
+    except threads.ThreadError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.post("/api/threads/{thread_id}/turn")
+async def thread_turn(thread_id: str, request: Request):
+    """Send one user message to every active participant. Body: {"content": string}. Returns each participant's answer or error."""
+    try:
+        facility_auth.check_api_token(request.headers.get("authorization"))
+        body = await request.json()
+        if not isinstance(body, dict) or not isinstance(body.get("content"), str):
+            raise HTTPException(400, 'body must be {"content": string}')
+        return {"results": await thread_turn_run(thread_id, body["content"])}
+    except facility_auth.AuthError as e:
+        raise HTTPException(e.status, e.message)
+    except threads.ThreadError as e:
+        raise HTTPException(400, str(e))
     except facility.ExecutionDisabled as e:
         raise HTTPException(503, str(e))
 
