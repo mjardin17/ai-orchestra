@@ -30,7 +30,7 @@ SYSTEM = ("You are a careful engineer working inside one project directory. Chan
 AGENT_TOOLS_RO, AGENT_TOOLS_RW = "Read,Glob,Grep", "Read,Glob,Grep,Edit,Write"
 DENIED_TOOLS = "Bash,PowerShell,WebFetch,WebSearch,Task"
 CLEANUP_GRACE_SEC = 10
-KNOWN_KEYS = {"id", "title", "prompt", "fixture", "permissions", "allowed_paths", "verify", "timeout_s", "verify_timeout_s", "model"}
+KNOWN_KEYS = {"id", "title", "prompt", "fixture", "permissions", "allowed_paths", "verify", "timeout_s", "verify_timeout_s", "model", "runner"}
 
 
 class TaskError(ValueError):
@@ -78,6 +78,11 @@ def validate_task(t: dict) -> dict:
         raise TaskError("write tasks must list allowed_paths (the only files the agent may change)")
     if t["permissions"] == "read_only" and allowed:
         raise TaskError("read_only tasks cannot have allowed_paths")
+    runner = t.get("runner", "claude")
+    if runner not in RUNNERS:
+        raise TaskError(f"runner must be one of {sorted(RUNNERS)}")
+    if runner == "chatgpt" and t["permissions"] == "write":
+        raise TaskError("the chatgpt runner is read-only; use runner 'claude' for write tasks")
     return t
 
 
@@ -162,7 +167,7 @@ async def claude_runner(ws: Path, prompt: str, write: bool, model: str, timeout:
     ensure_exec_enabled(write)
     proc = await asyncio.create_subprocess_exec(*build_agent_argv(write, model), cwd=str(ws), env=sb.agent_env(),
                                                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.PIPE)
+                                                stderr=asyncio.subprocess.PIPE, start_new_session=True)
     try:
         out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout=timeout)
     except BaseException:  # timeout or cancel: kill the whole process tree
@@ -173,7 +178,30 @@ async def claude_runner(ws: Path, prompt: str, write: bool, model: str, timeout:
     return {"text": out.decode(errors="replace").strip(), "exit_code": proc.returncode}
 
 
+async def codex_runner(ws: Path, prompt: str, write: bool, model: str, timeout: float) -> dict:
+    """ChatGPT (the Codex CLI as its tool, signed in with your ChatGPT account) (`codex login`, no API key). Read-only only: Codex runs in its read-only sandbox, so a
+    write task is refused here rather than run with weaker write isolation than claude_runner's OS lock."""
+    ensure_exec_enabled(write)
+    if write:
+        raise ExecutionDisabled("the codex runner is read-only; write tasks must use the claude runner")
+    exe = shutil.which("codex")
+    if not exe:
+        raise RuntimeError("Codex CLI not installed (npm i -g @openai/codex, then codex login)")
+    args = [exe, "exec", "--skip-git-repo-check", "--sandbox", "read-only"] + (["-m", model] if model else []) + ["-"]
+    proc = await asyncio.create_subprocess_exec(*args, cwd=str(ws), env=sb.agent_env(), stdin=asyncio.subprocess.PIPE,
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, start_new_session=True)
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout=timeout)
+    except BaseException:  # timeout or cancel: kill the whole process group
+        sb.kill_tree(proc)
+        raise
+    if proc.returncode:
+        raise RuntimeError(err.decode(errors="replace")[-300:] or "codex failed. Run `codex login` first.")
+    return {"text": out.decode(errors="replace").strip(), "exit_code": proc.returncode}
+
+
 DEFAULT_RUNNER = claude_runner
+RUNNERS = {"claude": claude_runner, "chatgpt": codex_runner}
 
 
 # ---- verification -------------------------------------------------------------------------------------------------
@@ -183,7 +211,8 @@ async def _verify(vdir: Path, report: Path, cmd: list, timeout: float) -> dict:
     argv = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-c", "pytest.ini", "--rootdir", ".",
             f"--junitxml={report}"] + [a for a in cmd[3:] if a != "-q"]
     proc = await asyncio.create_subprocess_exec(*argv, cwd=str(vdir), env=sb.verify_env(vdir), stdin=asyncio.subprocess.DEVNULL,
-                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+                                                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+                                                start_new_session=True)
     try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
@@ -238,13 +267,13 @@ async def run_task(task: dict, runner=None) -> dict:
     or the OS lock could not be applied); every task OUTCOME is reported in the receipt instead."""
     t = validate_task(dict(task))
     _reject_unknown_keys(t)
-    runner = runner or DEFAULT_RUNNER
+    runner = runner or (DEFAULT_RUNNER if t.get("runner", "claude") == "claude" else RUNNERS[t["runner"]])
     model, write = select_model(t), t["permissions"] == "write"
     allowed = set(t.get("allowed_paths", []))
     started = time.time()
     deadline = started + float(t.get("timeout_s", 300))
     vbudget = min(float(t.get("verify_timeout_s", DEFAULT_VERIFY_TIMEOUT)), float(t.get("timeout_s", 300)) / 2)
-    if runner is claude_runner:
+    if runner in (claude_runner, codex_runner):
         ensure_exec_enabled(write)
     fixture = FIXTURE_ROOT / t["fixture"]
     pristine_scan = sb.scan(fixture)

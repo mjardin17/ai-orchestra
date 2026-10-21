@@ -323,6 +323,9 @@ def test_pristine_fixture_containing_symlink_is_a_task_error(tmp_path, symlinks_
     target = tmp_path / "tgt.txt"; target.write_text("t")
     os.symlink(target, d / "link.txt")
     monkeypatch.setattr(facility, "FIXTURE_ROOT", fx)
+    # run_task checks the provider gate before the fixture scan. Enable it so the test reaches the symlink check.
+    # The scan raises TaskError before any provider is called, so nothing is executed.
+    monkeypatch.setenv("FACILITY_ENABLE_PROVIDER_EXEC", "1")
     with pytest.raises(facility.TaskError, match="clean regular-file tree"):
         go(facility.run_task(task(fixture="bad", verify=["python", "-m", "pytest", "check_x.py"]), runner=None))
 
@@ -519,7 +522,9 @@ def test_kill_tree_kills_grandchildren(tmp_path):
               f"g = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
               f"open(r'{pidfile}', 'w').write(str(g.pid))\n"
               "time.sleep(60)\n")
-    proc = subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # Start it as a process-group leader, the way the facility starts its agent and verifier. kill_tree relies on that.
+    proc = subprocess.Popen([sys.executable, "-c", parent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            start_new_session=True)
     gpid = None
     try:
         deadline = time.time() + 15
