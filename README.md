@@ -19,8 +19,15 @@ Models tab (dashboard)
 - The council brain (a Claude router) rates each job easy/medium/hard, then starts on the cheapest enabled model whose capability fits and escalates only if the model errors or a quick quality check says the result isn't good enough. Capability (1-5) and cost are rough defaults: adjust capability per model in the tab. Pin a model to an agent to skip all of this for that agent.
 - A free model that errors or is rate-limited falls back to Claude Haiku. Free tiers may train on your prompts, so workspaces with notes or files use Claude only unless you allow it.
 
+Understand tab (video understanding)
+- Upload a video to get a timestamped transcript, a structured summary (claims, objects, events), and a follow-up Q&A box. Requires `ffmpeg`/`ffprobe` on PATH (for audio/frame extraction) and a Groq key (for transcription) - connect Groq in Models -> Setup first.
+- Visual frame analysis is optional and silently skipped if no Gemini key is connected; transcript-only analysis still works.
+- Built as a standalone module (`video_understanding.py`) that takes a local video path - today that path comes from an upload, but the same function is meant to be reused by a later connector-based fetcher (e.g. Composio for Facebook/Instagram) once one exists. No such connector is wired up yet.
+- Results are saved per workspace (`video_analyses` table) so you can revisit them and keep asking follow-up questions.
+
 Settings (environment variables)
 - `MAX_TIER` (default `top`): hard ceiling. `MAX_TIER=main` keeps Opus off to save plan limits.
 - `MODEL_FAST`, `MODEL_MAIN`, `MODEL_TOP`: override the Claude model names.
 - `ORCHESTRA_PROVIDER=api` plus `ANTHROPIC_API_KEY`: use an API key (required to host this for other people; subscription logins are personal-use only).
 - Lower `LIMIT` in orchestrator.py if you hit plan limits. Check `claude --help` if your CLI rejects `-p`, `--model` or `--allowedTools`.
+- `GROQ_TRANSCRIBE_MODEL` (default `whisper-large-v3`), `GEMINI_VISION_MODEL` (default `gemini-flash-latest`): override the models Video Understanding uses.

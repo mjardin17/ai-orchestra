@@ -1,11 +1,11 @@
-import json, os
+import json, os, tempfile
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import arena, bench, brain, facility, facility_auth, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, video_client
+from . import arena, bench, brain, facility, facility_auth, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, video_client, video_understanding
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
@@ -83,6 +83,10 @@ class ImageIn(BaseModel):
 class FileIn(BaseModel):
     name: str
     text: str
+
+
+class VideoAskIn(BaseModel):
+    question: str
 
 
 @app.post("/api/run")
@@ -223,6 +227,54 @@ async def video_generate(body: VideoIn):
         async for ev in video_client.generate(body.model_id, body.prompt, body.aspect_ratio):
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/api/video/understand")
+async def video_understand(file: UploadFile = File(...), workspace_id: str = Form("default")):
+    """Upload a video and analyze it: audio extraction, timestamped transcription, optional frame
+    analysis, structured result. Streams progress over SSE, same pattern as /api/run and /api/video."""
+    suffix = os.path.splitext(file.filename or "")[1] or ".mp4"
+    tmp_video = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    tmp_video.write(await file.read())
+    tmp_video.close()
+
+    async def stream():
+        try:
+            async for ev in video_understanding.analyze_video(tmp_video.name, "upload", None, file.filename):
+                if ev["type"] == "final":
+                    vid = os.urandom(4).hex()
+                    store.save_video_analysis(vid, workspace_id, file.filename, "upload", None,
+                                              ev["transcript"], ev["frame_notes"], ev["result"])
+                    ev = {**ev, "id": vid}
+                yield f"data: {json.dumps(ev)}\n\n"
+        finally:
+            try:
+                os.unlink(tmp_video.name)
+            except OSError:
+                pass
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.get("/api/video/understand")
+def video_understand_list(workspace_id: str = "default"):
+    return store.list_video_analyses(workspace_id)
+
+
+@app.get("/api/video/understand/{vid}")
+def video_understand_get(vid: str):
+    r = store.get_video_analysis(vid)
+    if not r:
+        raise HTTPException(404, "Analysis not found")
+    return r
+
+
+@app.post("/api/video/understand/{vid}/ask")
+async def video_understand_ask(vid: str, body: VideoAskIn):
+    r = store.get_video_analysis(vid)
+    if not r:
+        raise HTTPException(404, "Analysis not found")
+    answer = await video_understanding.ask_about_video(r["transcript"], r["result"], r["frame_notes"], body.question)
+    return {"answer": answer}
 
 
 @app.put("/api/models/enabled")
