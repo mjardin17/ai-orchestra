@@ -24,6 +24,8 @@ FREE = [  # provider, model id, label, capability, description. Model ids change
 LOW_COST = [  # provider, model id, label, capability, cost, description. Pay-per-token after any trial credits.
     ("deepseek", "deepseek-v4-flash", "DeepSeek V4 Flash", 3, 1, "DeepSeek. Very cheap per token, 1M-token context. Good for bulk and coding-flavoured work."),
     ("deepseek", "deepseek-v4-pro", "DeepSeek V4 Pro", 4, 2, "DeepSeek. Higher-capability model for harder reasoning and coding."),
+    ("openai", "gpt-5", "GPT-5 (OpenAI API)", 5, 3, "OpenAI API (OPENAI_API_KEY), pay per token. Model id may need updating: run the health check."),
+    ("xai", "grok-4", "Grok 4 (xAI API)", 5, 3, "xAI API (XAI_API_KEY), pay per token. Model id may need updating: run the health check."),
 ]
 CODEX_HINT = "Needs the Codex CLI: run `npm i -g @openai/codex`, then `codex login`, then restart the app."
 

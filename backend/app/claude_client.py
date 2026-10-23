@@ -11,11 +11,18 @@ TIERS = ["fast", "main", "top"]
 _D = ({"fast": "claude-haiku-4-5-20251001", "main": "claude-sonnet-5", "top": "claude-opus-5"}
       if PROVIDER == "api" else {"fast": "haiku", "main": "sonnet", "top": "opus"})
 MODELS = {t: os.getenv(f"MODEL_{t.upper()}", _D[t]) for t in TIERS}
+TIMEOUT = float(os.getenv("CLAUDE_TIMEOUT", "240"))              # seconds per CLI call
+MAX_OUTPUT_TOKENS = int(os.getenv("CLAUDE_MAX_TOKENS", "2000"))  # API mode only; the CLI sets its own limit
 MAX_TIER = os.getenv("MAX_TIER", "top")          # lower this to protect subscription limits
 if MAX_TIER not in TIERS:
     MAX_TIER = "top"
 UNAVAILABLE: set = set()                          # tiers that failed with a model-access error
 MODEL_ERR = re.compile(r"model|not available|access|permission|not found|does not exist|not supported", re.I)
+
+
+def cli_path() -> str:
+    """The claude executable to run: CLAUDE_BIN if set (use it when the `claude` on PATH is a stale shim), else PATH."""
+    return os.getenv("CLAUDE_BIN") or shutil.which("claude") or "claude"
 
 
 def resolve(tier: str) -> str:
@@ -26,24 +33,24 @@ def resolve(tier: str) -> str:
     return TIERS[i]
 
 
-async def _call(system: str, prompt: str, model: str, tools: bool = False) -> str:
+async def _call(system: str, prompt: str, model: str, tools: bool = False, timeout=None) -> str:
     if PROVIDER == "api":
         from anthropic import AsyncAnthropic
         extra = {"tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]} if tools else {}
         try:
             msg = await AsyncAnthropic().messages.create(
-                model=model, max_tokens=2000, system=system,
+                model=model, max_tokens=MAX_OUTPUT_TOKENS, system=system,
                 messages=[{"role": "user", "content": prompt}], **extra)
         except Exception as e:
             raise RuntimeError(str(e)[:300])
         return "".join(b.text for b in msg.content if b.type == "text")
 
     full = f"{system}\n\n---\nUser request:\n{prompt}"
-    args = [shutil.which("claude") or "claude", "-p", "--model", model] + (["--allowedTools", "WebSearch,WebFetch"] if tools else [])
+    args = [cli_path(), "-p", "--model", model] + (["--allowedTools", "WebSearch,WebFetch"] if tools else [])
     proc = await asyncio.create_subprocess_exec(
         *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     try:
-        out, err = await asyncio.wait_for(proc.communicate(full.encode()), timeout=240)
+        out, err = await asyncio.wait_for(proc.communicate(full.encode()), timeout=timeout or TIMEOUT)
     except BaseException:  # timeout or Stop: don't leave the process running
         if proc.returncode is None:
             proc.kill()

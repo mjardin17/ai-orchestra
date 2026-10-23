@@ -1,14 +1,17 @@
 import json, os, tempfile
 from pathlib import Path
 from typing import Optional
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from . import arena, brain, free_models, image_client, models, store, video_client, video_understanding
+from . import arena, bench, brain, facility, facility_auth, free_models, image_client, lessons, market_data, models, providers, skill_selector, store, video_client, video_understanding
 from .orchestrator import orchestrate
 
 app = FastAPI(title="AI Orchestra")
 PAGE = Path(__file__).resolve().parents[2] / "frontend" / "index.html"
+MAPS = PAGE.parent / "maps"
+app.mount("/maps", StaticFiles(directory=MAPS, html=False), name="maps")  # read-only project maps shown in the Maps tab
 
 
 class RunIn(BaseModel):
@@ -17,8 +20,10 @@ class RunIn(BaseModel):
 
 
 class ArenaIn(BaseModel):
-    prompt: str
+    prompt: str = ""
     model_ids: list
+    market: bool = False
+    task_id: Optional[str] = None
 
 
 class WinnerIn(BaseModel):
@@ -90,6 +95,29 @@ async def run(body: RunIn):
         async for ev in orchestrate(body.prompt, body.workspace_id):
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@app.post("/api/tasks/run")
+async def run_facility_task(request: Request):
+    """Facility task loop. Fails closed: needs FACILITY_API_TOKEN, and write tasks also need a signed, task-bound write grant."""
+    try:
+        facility_auth.check_api_token(request.headers.get("authorization"))
+        try:
+            body = await request.json()
+        except ValueError:
+            raise HTTPException(400, "body must be JSON")
+        task = facility.validate_task(dict(body) if isinstance(body, dict) else body)
+        if task["permissions"] == "write":
+            facility_auth.check_write_grant(task, request.headers.get("x-facility-write-grant"))
+        return await facility.run_guarded(task)
+    except facility_auth.AuthError as e:
+        raise HTTPException(e.status, e.message)
+    except facility.TaskError as e:
+        raise HTTPException(400, str(e))
+    except facility.Busy as e:
+        raise HTTPException(429, str(e))
+    except facility.ExecutionDisabled as e:
+        raise HTTPException(503, str(e))
 
 
 @app.get("/api/workspaces")
@@ -284,7 +312,7 @@ def put_settings(body: SettingsIn):
 @app.post("/api/arena")
 async def arena_run(body: ArenaIn):
     async def stream():
-        async for ev in arena.run(body.prompt, body.model_ids):
+        async for ev in arena.run(body.prompt, body.model_ids, body.market, body.task_id):
             yield f"data: {json.dumps(ev)}\n\n"
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -307,6 +335,115 @@ def arena_export():
                               headers={"Content-Disposition": "attachment; filename=training_pairs.jsonl"})
 
 
+@app.get("/api/market/status")
+def market_status():
+    try:
+        return market_data.status()
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/market/digest")
+def market_digest():
+    try:
+        return market_data.digest()
+    except (RuntimeError, OSError) as e:
+        raise HTTPException(500, str(e))
+
+
+@app.get("/api/market/evidence")
+def market_evidence():
+    """The exact text every Arena model and the judge receive in market mode."""
+    from fastapi.responses import PlainTextResponse
+    try:
+        return PlainTextResponse(market_data.build_evidence()["text"])
+    except (RuntimeError, OSError, ValueError) as e:
+        raise HTTPException(500, str(e))
+
+
+class HealthIn(BaseModel):
+    model_ids: Optional[list] = None   # default: Claude Haiku only (cheapest real round trip)
+
+
+class HumanScoreIn(BaseModel):
+    criterion: str
+    score: float
+    rater: str = "josh"
+    notes: str = ""
+
+
+@app.get("/api/providers")
+def providers_overview():
+    """Every catalog model with its configuration, declared capabilities, last health check and support status."""
+    return providers.overview(models.catalog())
+
+
+@app.post("/api/providers/health")
+async def providers_health(body: HealthIn):
+    ids = body.model_ids or ["claude:haiku"]
+    out = []
+    for mid in ids:
+        m = models.find(mid)
+        if not m:
+            raise HTTPException(404, f"unknown model: {mid}")
+        out.append(await providers.health_check(m))
+    return out
+
+
+@app.get("/api/bench/benchmarks")
+def bench_benchmarks():
+    return bench.list_benchmarks()
+
+
+@app.post("/api/bench/register-market")
+def bench_register_market():
+    try:
+        return bench.register_market_benchmark()
+    except (RuntimeError, OSError, ValueError) as e:
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/bench/link-legacy")
+def bench_link_legacy():
+    return bench.link_legacy_arena_runs()
+
+
+@app.get("/api/bench/tasks")
+def bench_tasks(benchmark_id: Optional[str] = None):
+    return bench.list_tasks(benchmark_id)   # hidden answer keys are never included
+
+
+@app.get("/api/bench/episodes")
+def bench_episodes():
+    return bench.list_episodes()
+
+
+@app.get("/api/bench/episodes/{eid}/scorecard")
+def bench_scorecard(eid: str):
+    try:
+        return bench.scorecard(eid)
+    except KeyError:
+        raise HTTPException(404, "episode not found")
+
+
+@app.get("/api/bench/attempts/{aid}/trace")
+def bench_trace(aid: str):
+    if not bench.get_attempt(aid):
+        raise HTTPException(404, "attempt not found")
+    return bench.trace_for(aid)
+
+
+@app.put("/api/bench/attempts/{aid}/human-score")
+def bench_human_score(aid: str, body: HumanScoreIn):
+    try:
+        bench.add_human_score(aid, body.criterion, body.score, body.rater, body.notes)
+    except KeyError:
+        raise HTTPException(404, "attempt not found")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "human_scores": bench.human_scores(aid)}
+
+
 @app.post("/api/brain/tune")
 def brain_tune():
     return {"changes": brain.tune()}
@@ -315,6 +452,49 @@ def brain_tune():
 @app.get("/api/brain/log")
 def brain_log():
     return store.tuning_log()
+
+
+class LessonIn(BaseModel):
+    rule: str
+    agent: str = "*"
+
+
+class LessonStatusIn(BaseModel):
+    status: str
+
+
+class SuggestIn(BaseModel):
+    prompt: str
+
+
+@app.post("/api/skills/suggest")
+def skills_suggest(body: SuggestIn):
+    if not body.prompt.strip():
+        raise HTTPException(400, "prompt is required")
+    return skill_selector.select_for(body.prompt)
+
+
+@app.get("/api/lessons")
+def get_lessons(status: Optional[str] = None):
+    return lessons.list_lessons(status)
+
+
+@app.post("/api/lessons")
+def post_lesson(body: LessonIn):
+    if not body.rule.strip():
+        raise HTTPException(400, "rule is required")
+    return {"id": lessons.add_lesson(body.rule, body.agent)}
+
+
+@app.put("/api/lessons/{lid}")
+def put_lesson(lid: str, body: LessonStatusIn):
+    try:
+        found = lessons.set_status(lid, body.status)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if not found:
+        raise HTTPException(404, "lesson not found")
+    return {"ok": True}
 
 
 @app.get("/api/tally")

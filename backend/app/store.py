@@ -15,8 +15,8 @@ create table if not exists arena_runs(id text primary key, prompt text, results 
 create table if not exists tuning_log(created real, changes text);
 create table if not exists skills(id text primary key, name text, text text, created real);
 create table if not exists provider_keys(provider text primary key, key text);
-create table if not exists video_analyses(id text primary key, workspace_id text, filename text,
-    source_type text, source_ref text, transcript text, frame_notes text, result text, created real);
+create table if not exists video_analyses(id text primary key, workspace_id text, filename text,
+    source_type text, source_ref text, transcript text, frame_notes text, result text, created real);
 insert or ignore into workspaces(id, name, notes) values('default','My workspace','');
 """)
 try:
@@ -182,7 +182,8 @@ def clear_tally():
 
 
 def save_arena(rid, prompt, results, suggested):
-    DB.execute("insert into arena_runs values(?,?,?,?,?)", (rid, prompt, json.dumps(results), suggested, time.time()))
+    DB.execute("insert into arena_runs(id, prompt, results, winner, created) values(?,?,?,?,?)",
+               (rid, prompt, json.dumps(results), suggested, time.time()))
     DB.commit()
 
 
